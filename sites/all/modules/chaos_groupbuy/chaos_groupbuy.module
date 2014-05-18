@@ -1,0 +1,484 @@
+<?php
+
+function chaos_groupbuy_ctools_plugin_directory($module, $plugin) {
+	if($module == 'ms_products' && $plugin == 'product_types') {
+		return 'plugins/product_types';
+	}
+}
+
+function chaos_groupbuy_entity_info() {
+	return array(
+		'chaos_groupbuy' => array(
+			'label' => t('Group Bulk Buy'),
+			'label callback' => 'entity_class_label',
+			'entity class' => 'GroupBuy',
+			'controller class' => 'GroupBuyController',
+			'base table' => 'chaos_groupbuys',
+			'uri callback' => 'entity_class_uri',
+			'access callback' => 'chaos_groupbuy_entity_access',
+			'module' => 'chaos_groupbuy',
+			'entity keys' => array(
+				'id' => 'gid',
+			),
+			'admin ui' => array(
+				'path' => 'admin/content/groupbuy',
+				'file' => 'chaos_groupbuy.admin.inc',
+				'controller class' => 'GroupBuyUIController',
+			),
+		),
+		'chaos_groupbuy_purchase' => array(
+			'label' => t('Group Bulk Buy Purchase'),
+			'label callback' => 'entity_class_label',
+			'entity class' => 'GroupBuyPurchase',
+			'controller class' => 'GroupBuyPurchaseController',
+			'base table' => 'chaos_groupbuy_purchases',
+			'uri callback' => 'entity_class_uri',
+			'access callback' => 'chaos_groupbuy_entity_access',
+			'module' => 'chaos_groupbuy',
+			'entity keys' => array(
+				'id' => 'groupbuy_purchase_id',
+			),
+			'admin ui' => array(
+				'path' => 'admin/content/groupbuy/purchase',
+				'file' => 'chaos_groupbuy.admin.inc',
+				'controller class' => 'GroupBuyPurchaseUIController',
+			),
+		),
+	);
+}
+
+function chaos_groupbuy_entity_access($op, $groupbuy, $account = NULL, $type = NULL) {
+	global $user;
+
+	if(!isset($account)) {
+		$account = $user;
+	}
+
+	switch($op) {
+		case 'view':   return user_access('access group buys', $account);
+		default    :   return user_access('admin group buys', $account);
+	}
+}
+
+class GroupBuy extends Entity {
+	protected function defaultLabel() {
+		return empty($this->name) ? '' : $this->name;
+	}
+
+	protected function defaultUri() {
+		return array('path' => 'groupbuy/' . $this->identifier());
+	}
+}
+
+
+class GroupBuyController extends EntityAPIController {
+	public function save($entity, DatabaseTransaction $transaction = NULL) {
+		if (isset($entity->is_new)) {
+			$entity->created = REQUEST_TIME;
+		}
+
+		$entity->changed = REQUEST_TIME;
+		return parent::save($entity, $transaction);
+	}
+}
+
+class GroupBuyUIController extends EntityDefaultUIController {
+	public function hook_menu() {
+		$items = parent::hook_menu();
+		$items[$this->path]['description'] = 'Manage, enable, and disable group buys.';
+		return $items;
+	}
+
+	public function overviewForm($form, &$form_state) {
+		$form['pager'] = array('#theme' => 'pager');
+
+		$header = array(
+			'name' => array('data' => t('Group Buy'), 'field' => 'name'),
+			'operations' => array('data' => t('Operations'), 'field' => 'operations'),
+		);
+
+		$query = new EntityFieldQuery();
+		$query->entityCondition('entity_type', 'chaos_groupbuy');
+		$query->pager(50);
+
+		$options = array();
+
+		$result = $query->execute();
+		$g_results = !empty($result['chaos_groupbuy']) ? $result['chaos_groupbuy'] : array();
+		$gs = !empty($g_results) ? chaos_groupbuy_load_multiple(array_keys($g_results)) : array();
+
+		foreach($gs as $gid => $g) {
+			$options['gid-'.$gid] = array(
+				'name' => l($g->name, 'groupbuy/'.$gid),
+				'operations' => 
+					l(t('View'), 'groupbuy/'.$gid) . ' - ' . 
+					l(t('Edit'), 'admin/content/groupbuy/manage/' . $gid) . ' - ' . 
+					l(t('Delete'), 'admin/content/groupbuy/manage' . $gid . '/delete', array('query' => array('destination' => 'admin/content/groupbuy'))) . ' - ' .
+					l(t('Import Products'), 'admin/content/groupbuy/manage/' . $gid . '/import_products') . ' - ' .
+					l(t('Clear Products'), 'admin/content/groupbuy/manage/' . $gid . '/clear_products') . ' - '.
+					l(t('View Orders'), 'admin/content/groupbuy/manage/' . $gid . '/orders'). ' - '.
+					l(t('View Pallets'), 'admin/content/groupbuy/manage/' . $gid . '/pallets'),
+				'#disabled' => TRUE,
+			);
+		}
+
+		$form['entities'] = array(
+			'#type' => 'tableselect',
+			'#header' => $header,
+			'#options' => $options,
+			'#attributes' => array('class' => array('entity-sort-table')),
+			'#empty' => t('There are no currently configured group buys.'),
+		);
+
+		return $form;
+	}
+}
+
+class GroupBuyPurchase extends Entity {
+	protected function defaultLabel() {
+		return empty($this->groupbuy_purchase_id) ? '' : $this->groupbuy_purchase_id;
+	}
+}
+class GroupBuyPurchaseController extends EntityAPIController {
+	public function save($entity, DatabaseTransaction $transaction = NULL) {
+		if (isset($entity->is_new)) {
+			$entity->created = REQUEST_TIME;
+		}
+
+		$entity->changed = REQUEST_TIME;
+		return parent::save($entity, $transaction);
+	}
+}
+class GroupBuyPurchaseUIController extends EntityDefaultUIController {}
+
+function chaos_groupbuy_name_options() {
+	$names = array();
+	foreach(chaos_groupbuy_list() as $g) {
+		$names[$g->gid] = $g->name;
+	}
+	return $names;
+}
+
+function chaos_groupbuy_list() {
+	return entity_load('chaos_groupbuy');
+}
+
+function chaos_groupbuy_load($gid = NULL, $reset = FALSE) {
+	$g = chaos_groupbuy_load_multiple(array($gid), array(), $reset);
+	return isset($g[$gid]) ? $g[$gid] : FALSE;
+}
+
+function chaos_groupbuy_load_multiple($gids = array(), $conditions = array(), $reset = FALSE) {
+	return entity_load('chaos_groupbuy', $gids, $conditions, $reset);
+}
+
+function chaos_groupbuy_purchase_load($gid = NULL, $reset = FALSE) {
+	$g = chaos_groupbuy_purchase_load_multiple(array($gid), array(), $reset);
+	return isset($g[$gid]) ? $g[$gid] : FALSE;
+}
+
+function chaos_groupbuy_purchase_load_multiple($gids = array(), $conditions = array(), $reset = FALSE) {
+	return entity_load('chaos_groupbuy_purchase', $gids, $conditions, $reset);
+}
+
+function chaos_groupbuy_permission() {
+	return array(
+		'access group buys' => array(
+			'title' => t('Access group buys'),
+			'description' => t('Add products to the cart for group buys'),
+		),
+		'admin group buys' => array(
+			'title' => t('Administer group buys'),
+			'description' => t('Manage orders, products, etc.'),
+		),
+	);
+}
+
+function chaos_groupbuy_menu() {
+	return array(
+		'groupbuy/%' => array(
+			'title' => 'CHAOS Group Buy Products',
+			'page callback' => 'chaos_groupbuy_product_page_callback',
+			'page arguments' => array(1),
+			'access arguments' => array('access group buys'),
+			'type' => MENU_CALLBACK,
+		),
+		'groupbuy/%/cart/%ctools_js' => array(
+			'title' => 'View Cart', 
+			'page callback' => 'chaos_groupbuy_cart_modal_callback',
+			'page arguments' => array(1, 3),
+			'access arguments' => array('access group buys'),
+		),
+		'admin/content/groupbuy/manage/%/import_products' => array(
+			'title' => 'Group Buy Product Import',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('chaos_groupbuy_import_products_form', 4),
+			//'access arguments' => array('admin group buys'),
+			'access arguments' => array('access administration pages'),
+			'file' => 'chaos_groupbuy.admin.inc',
+		),
+		'admin/content/groupbuy/manage/%/clear_products' => array(
+			'title' => 'Group Buy Product Clear',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('chaos_groupbuy_delete_products_confirm', 4),
+			'access arguments' => array('access administration pages'),
+			//'access arguments' => array('admin group buys'),
+			'file' => 'chaos_groupbuy.admin.inc',
+		),
+		'admin/content/groupbuy/manage/%/orders' => array(
+			'title' => 'Group Buy Order Listing',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('chaos_groupbuy_manage_orders_callback', 4),
+			'access arguments' => array('admin group buys'),
+			'file' => 'chaos_groupbuy.admin.inc',
+		),
+		'admin/content/groupbuy/manage/%/pallets' => array(
+			'title' => 'Group Buy Pallet Report',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('chaos_groupbuy_manage_pallets_callback', 4),
+			'access arguments' => array('admin group buys'),
+			'file' => 'chaos_groupbuy.admin.inc',
+		),
+		'admin/content/groupbuy/product/%/edit' => array(
+			'title' => 'Edit Group Buy Purchase',
+			'page callback' => 'entity_ui_get_form',
+			'page arguments' => array('chaos_groupbuy_purchase', 4, 'edit'),
+			'access arguments' => array('admin group buys'),
+			'file' => 'chaos_groupbuy.admin.inc',
+		),
+	);
+}
+
+function _chaos_groupbuy_machineize_name($name) {
+	$mach = strtolower($name);
+	$mach = preg_replace('@[^a-z0-9_]+@','-',$mach);
+	return $mach;
+}
+
+function chaos_groupbuy_cart_modal_callback($gid, $js = NULL) {
+	if($gid == NULL) {
+		drupal_set_message('No group buy ID was specified', 'error');
+		return;
+	}
+	if($js) {
+		ctools_include('ajax');
+		ctools_include('modal');
+
+
+		$build = array();
+		$content = '';
+
+		drupal_add_css(drupal_get_path('module', 'ms_core') . '/css/ms_core.css');
+
+		$GLOBALS['conf']['cache'] = FALSE;
+		$cart = ms_core_get_cart();
+
+		if($cart) {
+			$content = ms_core_get_order_details_table($cart, TRUE);
+			$fields = ms_core_get_cart_fields($cart);
+
+			$build_fields = array();
+
+			$content = str_replace("destination=groupbuy/1/cart/ajax", "destination=groupbuy/1", $content);
+		} else {
+			$content = t('There are not currently any products in your shopping cart.');
+		}
+		return ctools_modal_render("Shopping Cart", $content);
+	} else {
+		drupal_goto('ms/cart');
+	}
+}
+
+function chaos_groupbuy_product_page_callback($gid) {
+
+	$g = chaos_groupbuy_load($gid);
+
+	if(!$g) {
+		drupal_goto("<front>");
+		return;
+	}
+
+	if(time() <= strtotime('+1 day', $g->start_date)) {
+		drupal_set_message("The group buy you are trying to access has not yet started.", 'warning');
+		if(!user_access('admin group buys')) {
+			drupal_goto("<front>");
+			return;
+		}
+	}
+	if(time() > strtotime('+1 day', $g->end_date)) {
+		drupal_set_message("The group buy you are trying to access has already ended.", 'warning');
+		if(!user_access('admin group buys')) {
+			drupal_goto("<front>");
+			return;
+		}
+	}
+
+	ctools_include('modal');
+	ctools_modal_add_js();
+	drupal_add_js(array(
+		'chaos-groupbuy-modal-cart' => array(
+			'animation' => 'slideDown',
+			'modalOptions' => array(
+				'opacity' => .7, 
+				'background' => '#000',
+			),
+		),
+	), 'setting');
+	ctools_add_js('collapsible-div');
+	ctools_add_css('collapsible-div');
+	drupal_add_css(drupal_get_path('module', 'chaos_groupbuy') . '/theme/chaos_groupbuy_product_list.css', 
+			array('group' => CSS_DEFAULT, 'every_page' => TRUE));
+	drupal_add_library('system', 'ui.tabs');
+	drupal_add_library('system', 'ui.progressbar');
+	drupal_add_js('jQuery(document).ready(function() { jQuery("#groupbuy_tabs").tabs(); } );', 'inline');
+
+	drupal_set_title($g->name);
+
+	$pallets = array();
+	$num_pallets = floor($g->pallet_count / $g->pallet_size);
+	for($i = 0; $i <= $num_pallets; $i++) {
+		if($i == $num_pallets) {
+			$pallets[$i+1] = array(
+				'percent' => round(($g->pallet_count % $g->pallet_size) / $g->pallet_size * 100),
+				'text' => $g->pallet_count % $g->pallet_size. " / " . $g->pallet_size,
+			);
+		} else {
+			$pallets[$i+1] = array(
+				'percent' => 100,
+				'text' => 'Full!',
+			);
+		}
+	}
+
+	$products = ms_products_get_plans_list('chaos_groupbuy');
+	$tree = array();
+
+	foreach ($products as $pid => $pname) {
+		$plan = ms_products_plan_load($pid);
+
+		if($plan->gid != $gid) {
+			continue;
+		}
+
+		if(!isset($tree[$plan->category])) {
+			$tree[$plan->category] = array();
+		}
+
+		if(!isset($tree[$plan->category][$plan->subcategory])) {
+			$tree[$plan->category][$plan->subcategory] = array();
+		}
+		array_push($tree[$plan->category][$plan->subcategory], array(
+			'id' => $plan->itemid,
+			'title' => $plan->title,
+			'price' => "$".$plan->recurring_schedule['main_amount'],
+			'description' => $plan->description,
+			'size' => $plan->size,
+			'link' => l(t('Add to cart'), 'ms_product/purchase/' . $plan->sku, array('attributes' => array('class' => 'groupbuy-product-add-link')))
+		));
+	}
+
+	$end = new DateObject($g->end_date);
+
+	return theme('chaos_groupbuy_product_list', array(
+				'tree' => $tree,
+				'pallets' => $pallets,
+				'description' => $g->description,
+				'end_date' => $end->format("l F j, Y"),
+				'module_path' =>  base_path() . drupal_get_path('module', 'chaos_groupbuy'),
+			));
+}
+
+function chaos_groupbuy_theme($existing, $type, $theme, $path) {
+	return array('chaos_groupbuy_product_list' => array(
+				'template' => 'chaos_groupbuy_product_list',
+				'path' => drupal_get_path('module', 'chaos_groupbuy').'/theme'
+			));
+}
+
+function chaos_groupbuy_entity_delete($entity, $type) {
+	if($type == 'chaos_groupbuy_purchase') {
+		if($g = chaos_groupbuy_load($entity->gid)) {
+			$g->pallet_count--;
+			$g->save();
+		}	
+	}
+}
+
+function chaos_groupbuy_add_fee($product, $g) {
+	if($g->fee_amount != '') {
+		$fee = new MsAdjustment();
+		$fee->id = 'chaos_groupbuy_fee_1';
+		$fee->product_id = $product->cart_product_id;
+		$fee->type = 'percentage';
+		$fee->display = $g->fee_name;
+		$fee->value = $g->fee_amount;
+		$fee->weight = 1;
+		$fee->scope = 'initial';
+		ms_core_add_cart_adjustment($fee);
+	}
+
+	$charge = new MsAdjustment();
+	$charge->id = 'chaos_groupbuy_delivery_1';
+	$charge->product_id = $product->cart_product_id;
+	$charge->type = 'fixed';
+	$charge->display = "Delivery Charge";
+	if($product->data['is_large']) {
+		$charge->value = 3.0 * $product->qty;
+	} else {
+		$charge->value = 3.0;
+	}
+	$charge->weight = 2;
+	$charge->scope = 'initial';
+	ms_core_add_cart_adjustment($charge);
+}
+
+function chaos_groupbuy_add_fees_to_cart($cart, $g) {
+	foreach($cart->products as $product) {
+		if($product->module == 'chaos_groupbuy') {
+			chaos_groupbuy_add_fee($product, $g);
+		}
+	}
+}
+
+function chaos_groupbuy_ms_cart_added($cart, $product) {
+	if($g = chaos_groupbuy_load($product->data['gid'])) {
+		ms_core_remove_cart_adjustment_match('chaos_groupbuy_');
+		chaos_groupbuy_add_fees_to_cart($cart, $g);
+		chaos_groupbuy_add_fee($product, $g);
+
+		drupal_get_messages('status');
+		drupal_set_message(t('Added @name (@id), you currently have @num item@s in your cart.', array(
+					'@name' => $product->data['title'], 
+					'@id' => $product->data['itemid'],
+					'@num' => count($cart->products) + 1, //We have to assume +1 here because the cart doesn't include the most recent purchase.
+					'@s' => count($cart->products) > 0 ? "s" : "",
+		)), 'status');
+		drupal_goto('groupbuy/'.$product->data['gid']);
+	}
+}
+
+function chaos_groupbuy_ms_cart_qty_changed($cart, $product_id) {
+	$product = reset($cart->products);
+	$g = chaos_groupbuy_load($product->data['gid']);
+	ms_core_remove_cart_adjustment_match('chaos_groupbuy_');
+	chaos_groupbuy_add_fees_to_cart($cart, $g);
+}
+
+function chaos_groupbuy_ms_order_payment($type, $product, $order, $payment) {
+	if($g = chaos_groupbuy_load($product->data['gid'])) {
+		if($product->data['is_large']) {
+			$g->pallet_count += $product->qty;
+		} else {
+			$g->pallet_count++;
+		}
+		$g->save();
+
+		$purchase = entity_create('chaos_groupbuy_purchase', array());
+		$purchase->gid = $product->data['gid'];
+		$purchase->oid = $order->oid;
+		$purchase->uid = $order->uid;
+		$purchase->order_product_id = $product->order_product_id;
+		$purchase->pallet = ceil($g->pallet_count / $g->pallet_size) - 1;
+		$purchase->save();
+	}
+}

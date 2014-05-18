@@ -1,0 +1,32 @@
+#reservationdiv div.fieldset-wrapper {
+	margin-left: 10px;
+}
+#reservationmapimg {
+	position: relative;
+}
+div.form-item-bay {
+	display: none;
+}
+div#conflicts {
+	margin-top: 5px;
+}
+input#edit-check {
+	float: right;
+}
+input#edit-submit, input#edit-cancel {
+	font-size: 1.8em;
+	font-weight: bold;
+	padding: 5px;
+	display: none;
+	margin-left: 78px;
+}
+input#edit-submit {
+	background-color: #A5FFBD;
+	border-color: #16C84C;
+	color: #228A33;
+}
+input#edit-cancel {
+	background-color: #FF8484;
+	border-color: #800000;
+	color: #CC0000;
+}

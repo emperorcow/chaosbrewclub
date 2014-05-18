@@ -1,0 +1,34 @@
+body.page-projecttracker table#datatable-1 {
+	color: #555555;
+	border: 1px solid #CCCCCC;
+	font-size: .86em;
+}
+body.page-projecttracker tr.views-row-priority-Critical td {
+	background: #FFECE8;
+	border-top: 2px solid #FFBAA3;
+}
+body.page-projecttracker tr.views-row-priority-High td {
+	background: #FFFFDD;
+	border-top: 2px solid #FFD78E;
+}
+body.page-projecttracker tr.views-row-priority-Moderate td {
+	background: #D7FFD8;
+	border-top: 2px solid #A8FF98;
+}
+body.page-projecttracker tr.views-row-priority-Low td {
+	background: #EFF1FE;
+	border-top: 2px solid #B5C4FE;
+}
+body.page-projecttracker tr.views-row-status-Resolved td {
+	text-decoration: line-through;
+	background-color: #FBFBFB;
+	border-top: 2px solid #CCCCCC;
+}
+body.page-projecttracker tr.views-row-status-Close td {
+	text-decoration: line-through;
+}
+body.page-projecttracker a.addnew {
+	position: absolute; 
+	right: 10px;
+	top: 0px;
+}

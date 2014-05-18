@@ -1,0 +1,4 @@
+name = CHAOS Membership Tweaks
+description = Small tweaks to the moneyscripts stuff
+core = 7.x
+package = CHAOS Brew Club

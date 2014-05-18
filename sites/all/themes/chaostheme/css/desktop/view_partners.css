@@ -1,0 +1,10 @@
+.view-sponsors tr.odd td.sorting_1 {
+	background: transparent;
+}
+
+body.page-partners a.addnew {
+	position: absolute;
+	right: 10px;
+	top: 10px;
+	font-size: 1.1em;
+}

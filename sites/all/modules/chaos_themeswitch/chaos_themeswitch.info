@@ -1,0 +1,5 @@
+name = CHAOS Theme Switcher
+description = Switch themes based on the domain
+package = CHAOS Brew Club
+core = 7.x
+

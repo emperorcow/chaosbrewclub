@@ -1,0 +1,196 @@
+<?php
+function chaos_reports_permission() {
+  return array(
+    'access chaos reports' => array(
+      'title' => t('Access CHAOS reports'),
+      'description' => t('Access CHAOS system reports'),
+    ),
+  );
+}
+
+function chaos_reports_menu() {
+  $items = array();
+
+  $items['board/reports'] = array(
+    'title' => 'CHAOS Board Reports',
+    'page callback' => 'chaos_reports_master',
+    'page arguments' => array('master'),
+    'access arguments' => array('access chaos reports'),
+  );
+
+  return $items;
+}
+
+function chaos_reports_master($page = 'master') {
+  return array('#markup' => '<div id="chaos-reports">' . chaos_reports_display($page) . '</div>');
+}
+
+function chaos_reports_display($page = 'master') {
+	$charts = array();
+	$output = chaos_reports_membership_numbers($charts);
+	$output .= chaos_reports_build_active_membership($charts);
+	$output .= chaos_reports_trial_membership_purchases($charts);
+
+	draw_chart($charts);
+	return $output;
+}
+
+function chaos_reports_build_active_membership(&$charts) {
+	$member_columns = array('Friend of CHAOS' => 0, 
+					 'Apprentice Membership' => 1, 
+					 'Brewer Membership' => 2, );
+					 //'Trial Membership' => 3);
+	$res_types = array('Apprentice Membership', 'Brewer Membership');
+
+	$annualcount = $header = $member_rows = $res_rows = array();
+
+	for($i = 12; $i >= 1; $i--) {
+		$m = date('n', strtotime("-$i month"));
+		$y = date('Y', strtotime("-$i month"));
+		$member_results = db_query("SELECT ms_order_products.name AS name, COUNT(1) AS count FROM ms_order_products JOIN ms_payments ON ms_order_products.oid = ms_payments.oid WHERE MONTH(FROM_UNIXTIME(ms_payments.created)) = $m AND YEAR(FROM_UNIXTIME(ms_payments.created)) = $y AND NOT ms_order_products.name LIKE '%(Annual)%' GROUP BY ms_order_products.id");
+		$res_results = db_query("SELECT COUNT(entity_id) AS count FROM field_revision_field_date WHERE bundle='brewhouse_reservation' AND YEAR(field_date_value) = $y AND MONTH(field_date_value) = $m");
+		$annual_results = db_query("SELECT ms_orders.oid AS oid, ms_order_products.name AS name FROM ms_orders JOIN ms_order_products ON ms_orders.oid = ms_order_products.oid WHERE (status = 'active' OR status = 'completed') AND ms_order_products.name LIKE '%(Annual)%' AND MONTH(FROM_UNIXTIME(ms_orders.created)) = $m AND YEAR(FROM_UNIXTIME(ms_orders.created)) = $y");
+
+		$header[$i] = date('M y', strtotime("-$i month"));
+
+		while($row = $annual_results->fetchAssoc()) {
+			$matches = array();
+			preg_match('/(.*)\s\(.*\)/', $row['name'], $matches);
+			$annualcount[$matches[1]][] = array($row['oid'], 12);
+		}
+
+		foreach($member_columns as $plan => $index) {
+			$member_rows[$index][$i] = 0;
+			if(isset($annualcount[$plan])) {
+				foreach($annualcount[$plan] as $membership) {
+					if($membership[1] > 0) {
+						$member_rows[$index][$i]++;
+						$membership[1]--;
+					}
+				}
+			}
+		}
+
+		$tmp_month_total_members = 0;
+		while($row = $member_results->fetchAssoc()) {
+			$matches = array();
+			preg_match('/(.*)\s\(.*\)/', $row['name'], $matches);
+			if(isset($member_columns[$matches[1]])) {
+				$member_rows[$member_columns[$matches[1]]][$i] += $row['count'];
+			}
+			if(in_array($matches[1], $res_types)) {
+				$tmp_month_total_members += $row['count'];
+			}
+		}
+
+		$tmp_month_reservations = $res_results->fetchField();
+		if($tmp_month_total_members > 0) {
+			$res_rows[0][$i] = $tmp_month_reservations / $tmp_month_total_members;
+		} else {
+			$res_rows[0][$i] = 0;
+		}
+	}
+
+	$charts['chart']['active_memberships_year'] = array(
+		'header' => $header, 
+		'rows' => $member_rows,
+		'columns' => array_keys($member_columns),
+		'chartType' => 'LineChart',
+		'containerId' => 'active_memberships_month',
+		'options' => array(
+			'colors' => array('#00E600', '#3380CC', '#CC3338'),
+		//	'curveType' => 'function',
+			'forceIFrame' => FALSE,
+			'title' => 'Active Memberships (by Month)',
+			'width' => 660,
+			'height' => 300,
+		),
+	);
+	$charts['chart']['average_reservations_month'] = array(
+		'header' => $header, 
+		'rows' => $res_rows,
+		'columns' => array('Average Reservations'),
+		'chartType' => 'LineChart',
+		'containerId' => 'average_reservations_month',
+		'options' => array(
+			'colors' => array('#FF3300'),
+			'legend' => 'none',
+	//		'curveType' => 'function',
+			'forceIFrame' => FALSE,
+			'title' => 'Average Brewhouse Use By Members (by Month)',
+			'width' => 660,
+			'height' => 300,
+		),
+	);
+	return '<div id="active_memberships_month"></div><div id="average_reservations_month"></div>';
+}
+
+function chaos_reports_trial_membership_purchases(&$charts) {
+	$header = $rows = array();
+
+	for($i = 52; $i >= 0; $i--) {
+		$w = date('W', strtotime("Last Monday -$i week"));
+		$y = date('Y', strtotime("Last Monday -$i week"));
+
+		$header[$i] = date('M j', strtotime("Last Monday -$i week"));
+		$rows[$i] = db_query("SELECT COUNT(1) FROM ms_orders JOIN ms_order_products ON ms_orders.oid = ms_order_products.oid WHERE ms_order_products.name LIKE '%Trial Membership%' AND (status = 'active' OR status = 'completed') AND WEEK(FROM_UNIXTIME(ms_orders.created)) = $w AND YEAR(FROM_UNIXTIME(ms_orders.created)) = $y;")->fetchField();
+	}
+
+	$charts['chart']['trial_membership_purchases'] = array(
+		'header' => $header,
+		'rows' => array($rows),
+		'columns' => array('Trials'),
+		'chartType' => 'LineChart',
+		'containerId' => 'trial_membership_purchases', 
+		'options' => array(
+			'colors' => array('#999999'),
+			'legend' => 'none',
+//			'curveType' => 'function',
+			'forceIFrame' => FALSE,
+			'title' => 'Trial Membership Purchases (by Week)',
+			'width' => 660,
+			'height' => 300,
+		),
+	);
+
+	return '<div id="trial_membership_purchases"></div>';
+}
+
+function chaos_reports_membership_numbers(&$charts) {
+	$columns = array('Friend of CHAOS' => 0, 
+					 'Apprentice Membership' => 1, 
+					 'Brewer Membership' => 2, );
+					 //'Trial Membership' => 3);
+
+	$header = $rows = array();
+
+	foreach($columns as $id) {
+		$rows[$id] = 0;
+	}
+
+	$results = db_query("SELECT ms_order_products.name AS name, COUNT(1) AS count FROM ms_orders JOIN ms_order_products ON ms_orders.oid = ms_order_products.oid WHERE (status = 'active' AND name NOT LIKE '%Renewal%') GROUP BY ms_order_products.name");
+	while($row = $results->fetchAssoc()) {
+		$matches = array();
+		preg_match('/(.*)\s\(.*\)/', $row['name'], $matches);
+		if(isset($columns[$matches[1]])) {
+			$rows[$columns[$matches[1]]] += $row['count'];
+		}
+	}
+	$charts['chart']['membership_numbers'] = array(
+		'header' => array_keys($columns),
+		'rows' => array($rows),
+		'columns' => array('Members'),
+		'chartType' => 'PieChart',
+		'containerId' => 'membership_numbers', 
+		'options' => array(
+			'colors' => array('#00E600', '#3380CC', '#CC3338'),
+//			'curveType' => 'function',
+			'forceIFrame' => FALSE,
+			'title' => 'Total Members',
+			'width' => 660,
+			'height' => 300,
+		),
+	);
+
+	return '<div id="membership_numbers"></div>';
+}

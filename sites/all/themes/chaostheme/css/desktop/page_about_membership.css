@@ -1,0 +1,42 @@
+table#memberinfo {
+	margin: 0 auto;
+	width: 90%;
+	border-width: 0px 0px 1px 0px;
+	border-color: #A4A4A4;
+	border-style: solid;
+}
+table#memberinfo td {
+	text-align: center;
+	border-width: 0px 0px 1px 0px;
+	border-color: #A4A4A4;
+	border-style: solid;
+	vertical-align: middle;
+}
+table#memberinfo tbody td.label {
+	text-align: left;
+	font-weight: bold;
+}
+table#memberinfo thead td {
+	font-weight: bold;
+	font-size: 1.2em;
+}
+table#memberinfo tbody td {
+	font-size: 1.0em;
+}
+table#memberinfo td span.sub {
+	font-size: 0.9em;
+	font-style: italic;
+	font-weight: normal;
+}
+table#memberinfo td.friend, 
+table#memberinfo td.apprentice, 
+table#memberinfo td.brewer {
+	width: 110px;
+}
+table#memberinfo td.friend { background: #F0F0F0; }
+table#memberinfo td.apprentice { background: #EDF7EA; }
+table#memberinfo td.brewer { background: #E0ECFF; }
+table#memberinfo td img {
+	padding-top: 6px;
+}
+

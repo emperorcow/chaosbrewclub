@@ -1,0 +1,6 @@
+name = CHAOS User Subscription page
+description = Creates a page to show users flags for their subscription flags
+core = 7.x
+configure = admin/config/chaos_subscriptions
+package = CHAOS Brew Club
+

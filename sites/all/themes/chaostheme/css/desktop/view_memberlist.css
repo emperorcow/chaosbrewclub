@@ -1,0 +1,17 @@
+body.page-membership-list table {
+	color: #555555;
+	border: 1px solid #CCCCCC;
+	font-size: .86em;
+}
+
+body.page-membership-list th {
+	font-size: 1.1em;
+	text-decoration: underline;
+	font-weight: bold;
+	text-align: center;
+}
+
+body.page-membership-list td.views-field-name,
+body.page-membership-list th.views-field-name {
+	text-align: center;
+}

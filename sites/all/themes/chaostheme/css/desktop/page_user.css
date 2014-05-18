@@ -1,0 +1,79 @@
+table.ms-membership-purchase {
+	border: 0;
+}
+
+table.ms-membership-purchase a {
+	color: #3a83a6;
+}
+table.ms-membership-purchase a:hover {
+	color: #36ab69;
+}
+
+table.ms-membership-purchase thead tr td {
+	border-style: solid;
+	border-width: 1px; 
+	border-color: #cccccc;
+	text-align: center;
+	font-weight: 700;
+	background: #ccc;
+}
+
+table.ms-membership-purchase thead tr > td:first-child {
+	border: 0;
+	background: transparent;
+}
+
+table.ms-membership-purchase thead tr {
+	background: transparent;
+	border: none;
+}
+table.ms-membership-purchase tbody td.ms-membership-item {
+	text-align: center;
+}
+
+table.ms-membership-purchase tbody tr {
+	border-width: 1px;
+	border-style: solid;
+}
+table.ms-membership-purchase tr.friend_of_chaos { 
+	background-color: #F0F0F0; 
+	border-color: #D8D8D8; 
+}
+table.ms-membership-purchase tr.apprentice_membership, 
+table.ms-membership-purchase tr.trial_membership { 
+	background-color: #EDF7EA; 
+	border-color: #D5EDCE;
+}
+table.ms-membership-purchase tr.brewer_membership { 
+	background-color: #E0ECFF; 
+	border-color: #B8CFF5;
+}
+
+table.ms-membership-purchase input {
+	margin-right: 3px;
+	margin-bottom: 3px;
+}
+
+
+article.profile {
+	position: relative;
+}
+
+article.profile div.user-picture {
+	position: absolute; 
+	right: 0px;
+	top: 0px;
+}
+
+article.profile section.history {
+	margin-top: 30px;
+}
+
+table.forum_subscription_list tr.category {
+	background-color: #3a83a6;
+	color: #fff;
+}
+legend.user_subscription_legend {
+	font-size: 1.2em;
+	font-weight: 700;
+}

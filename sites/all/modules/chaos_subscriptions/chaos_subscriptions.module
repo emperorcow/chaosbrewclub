@@ -1,0 +1,319 @@
+<?php 
+
+/**
+ * Shows the information about our module
+ */
+function chaos_subscriptions_help($path, $arg) {
+	switch($path) {
+		case "admin/help#chaos_subscriptions":
+			return '<p>'. t("Creates a user page to manage subscription flags.").'</p>';
+		break;
+	}
+}
+
+/*
+function chaos_subscriptions_admin() {
+	$form = array();
+
+	$form['chaos_subscriptions_mailserver'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Mail Server'),
+		'#default_value' => variable_get('chaos_subscriptions_mailserver'),
+		'#size' => 50,
+		'#maxlength' => 100,
+		'#description' => "The hostname for the IMAP mail server where users will be directed to reply to for validated messages.",
+		'#required' => TRUE,
+	);
+
+	$form['chaos_subscriptions_mailuser'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Mail Username'),
+		'#default_value' => variable_get('chaos_subscriptions_mailuser'),
+		'#size' => 50,
+		'#maxlength' => 100,
+		'#description' => "Username for the mailbox to access for validated replies.",
+		'#required' => TRUE,
+	);
+
+	$form['chaos_subscriptions_mailpass'] = array(
+		'#type' => 'password',
+		'#title' => t('Mail Password'),
+		'#default_value' => variable_get('chaos_subscriptions_mailpass'),
+		'#size' => 50,
+		'#maxlength' => 100,
+		'#description' => "Password to access the mailbox.",
+		'#required' => TRUE,
+	);
+
+	$form['chaos_subscriptions_reply_text'] = array(
+		'#title' => t('Reply text'),
+		'#type' => 'textfield',
+		'#default_value' => variable_get('chaos_subscriptions_reply_text', t('((( Reply ABOVE this LINE to POST a COMMENT )))')),
+		'#description' => t('Text to separate reply from the rest of the e-mail. Leave blank to disable. ENSURE THAT THIS IS INCLUDED IN YOUR MAIL TEMPLATE.'),
+	);
+
+	return system_settings_form($form);
+}*/
+
+/**
+ * Function that adds a subscriptions page to the user pages
+ */
+function chaos_subscriptions_menu() {
+	$items = array();
+
+	$items['user/%user/alerts'] = array(
+		'title' => t('Email Alerts'),
+		'page callback' => 'chaos_subscriptions_user_page',
+		'page arguments' => array(1),
+		'access callback' => TRUE,
+		'access arguments' => array('access user subscriptions'),
+		'type' => MENU_LOCAL_TASK,
+	);
+
+/*	$items['admin/config/chaos_subscriptions'] = array(
+		'title' => 'CHAOS Subscriptions Module Settings',
+		'description' => 'Setup mail server and user settings for validated subscriptions',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('chaos_subscriptions_admin'),
+		'access arguments' => array('administer chaos_subscriptions settings'),
+	);
+*/
+	return $items;
+}
+
+
+/**
+ * Create the data that our template will call to create the subscriptions page for the user
+ */
+function chaos_subscriptions_user_page($user) {
+	//Get the vocabulary ID of the forums taxonomy
+	$vid = taxonomy_vocabulary_machine_name_load("Forums")->vid;
+	//Get all of the taxonomy objects
+	$groups = taxonomy_get_tree($vid, 0, 1, true);
+
+	//Create temp variables to let us know where in the tree we are, since
+	//its stored as a flat hash with parents defined in the child info
+	$tmp = array();
+	$cur_depth = 0;
+	$cur_parent = "";
+
+	//Loop through the entire array
+	foreach($groups as $term) {
+		//If the user is allowed to access the forum
+		if(forum_access_access("view", $term->tid)) {
+			//Add to our array (with children in sub-arrays) the info recursively
+			array_push($tmp, array("tid"      => $term->tid,
+							   "name"     => $term->name,
+							   "children" => chaos_subscriptions_getchildren($term->tid)
+							  )
+				  );
+		}
+	}
+
+	//Return the objects to our template file
+	return theme('chaos_subscriptions_user_alerts', array(
+						'user' => $user,
+						'forums' => $tmp
+					)
+				);
+}
+
+/** 
+ * Gives us a way to allow admins to view what others have flagged. The theme will call this function and check to see if the user is self or not.  If self, we use the standard flag stuff.  If not, we'll use this.  
+ */ 
+function chaos_subscriptions_get_flag_link($flag_name, $tid, $account) {
+	global $user;
+
+	if($account->uid == $user->uid) {
+		return flag_create_link($flag_name, $tid);
+	}
+
+	$flag = flag_get_flag($flag_name);
+	if($flag->is_flagged($tid, $account->uid)) {
+		return "Subscribed";
+	}
+}
+
+
+/**
+ * Calls the _theme hook so that our new custom template file gets called.
+ */
+function chaos_subscriptions_theme($existing, $type, $theme, $path) {
+	return array(
+		'chaos_subscriptions_user_alerts' => array(
+			'template' => 'chaos_subscriptions_user_alerts',
+			'path' => drupal_get_path('module', 'chaos_subscriptions').'/theme'
+		)
+	);
+}
+
+/**
+ * Function that gets the children from an array of the current TID
+ * will call itself recursively to get a tree of children.
+ *
+ * Parameters: $tid - Taxonomy ID of the forum item
+ * Returns: Array with names for each forum and children in subarrays
+ */
+function chaos_subscriptions_getchildren($tid) {
+	$terms = taxonomy_get_children($tid);
+	$tmp = array();
+	foreach($terms as $term) {
+		if(forum_access_access("view", $term->tid)) {
+			array_push($tmp, array("tid"      => $term->tid,
+							   "name"     => $term->name,
+							   "children" => chaos_subscriptions_getchildren($term->tid)
+							  )
+				  );
+		}
+	}
+	return $tmp;
+}
+
+/*
+function chaos_subscriptions_queue_info() {
+	$queues['validated_smtp'] = array(
+		'worker callback' => 'chaos_subscriptions_runner_checkmail_run',
+		'time' => 60,
+	);
+
+	return $queues;
+}
+
+function chaos_subscriptions_cron() {
+	$worker_data['host'] = variable_get('chaos_subscriptions_mailserver');
+	$worker_data['user'] = variable_get('chaos_subscriptions_mailuser');
+	$worker_data['pass'] = variable_get('chaos_subscriptions_mailpass');
+	
+	chaos_subscriptions_runner_checkmail_run($worker_data);
+}
+
+function chaos_subscriptions_runner_checkmail_run($data) {
+	$imap_host = "{".$data['host']."/ssl}";
+
+	try {
+		if($conn = @imap_open("{$imap_host}INBOX", $data['user'], $data['pass'])) {
+			$count = imap_num_msg($conn);
+
+			//Loop through messages
+			for($num = 1; $num <= $count; $num++) {
+				$msg = imap_headerinfo($conn, $num);
+
+				//watchdog('chaos_subscriptions', "Checking message @subj: @printr", array('printr' => print_r($msg, true), 'subj' => $msg->subject));
+				//If there's a nonce in our subject, do something
+				$nonce = chaos_subscriptions_parse_replyaddr($msg->to);
+				if($nonce) {
+					//watchdog('chaos_subscriptions', "Nonce !nonce identified in message @subj", array('nonce' => $nonce, 'subj' => $msg->subject));
+					//Get info from the database
+					$result = db_select('chaos_subscriptions_nonces', 'c')
+						->fields('c', array('uid','id','type'))
+						->condition('nonce',$nonce)
+						->execute()
+						->fetchAssoc();
+
+					//If there is a matching ID, load the user
+					if(isset($result['id'])) {
+						//watchdog('chaos_subscriptions', "Nonce found to agree with node/message ID");
+						$user = user_load($result['uid']);
+
+						//Check to ensure the from address matches the user.
+						if($fromaddr = chaos_subscriptions_parse_from($user, $msg->from)) {
+							$body = chaos_subscriptions_parse_email(imap_body($conn, $num));
+
+							if($result['type'] == 'node') {
+								$node = node_load($result['id']);
+								rules_invoke_event('chaos_subscriptions_event_new_smtp_node', $user, $node, array('value' => $body));
+								watchdog('chaos_subscriptions', 'Processing node reply @msg', array('@msg' => $msg->subject), WATCHDOG_DEBUG);
+							} else {
+								rules_invoke_event('chaos_subscriptions_event_new_smtp_pm', $user, $result['id'], $body);
+								watchdog('chaos_subscriptions', 'Processing message reply @msg', array('@msg' => $msg->subject), WATCHDOG_DEBUG);
+							}
+						}
+
+						try {
+							db_delete('chaos_subscriptions_nonces')
+								->condition('nonce', $nonce)
+								->execute();
+						} catch (Exception $e) {
+							watchdog_exception('chaos_subscriptions', $e, 'Error while deleting nonce from the database');
+						}
+					}
+				}
+				imap_delete($conn, $num);
+			}
+
+			imap_expunge($conn);
+			imap_close($conn);
+		} else {
+			watchdog('chaos_subscriptions', 
+					'Error occured while trying to login to IMAP. <br/>Message: @msg', 
+					array('@msg' => imap_last_error()), WATCHDOG_CRITICAL);
+		}
+	} catch(Exception $e) {
+		watchdog('chaos_subscriptions', 
+				'An unknown error occured while trying to process IMAP. <br/>Message: @msg<br/>@trace', 
+				array('@msg' => $e->getMessage(), '@trace' => $e->getTraceAsString()), WATCHDOG_CRITICAL);
+	}
+}
+
+function chaos_subscriptions_mail_alter(&$message) {
+	if(preg_match('/<([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})>/i', $message['from'], $matches)) {
+		$message['headers']['Sender'] = $message['headers']['Return-Path'] = $matches[1];
+	}
+}
+
+function chaos_subscriptions_parse_replyaddr($toobj) {
+	foreach($toobj as $addr) {
+		if(preg_match("/reply\+([a-zA-Z0-9]{32})/", $addr->mailbox, $matches)) {
+			return $matches[1];
+		}
+	}
+	return false;
+}
+
+function chaos_subscriptions_parse_from($user, $fromobj) {
+	foreach($fromobj as $addr) {
+		//watchdog('chaos_subscriptions', "Checking if user(@user) matches address: @from", array('user'=>$user->mail, 'from'=>$addr->mailbox."@".$addr->host));
+		if($user->mail == "{$addr->mailbox}@{$addr->host}") {
+			return $user->mail;
+		}
+	}
+
+	return false;
+}
+
+function chaos_subscriptions_parse_subj($subj) {
+	if(preg_match("/ref([0-9a-zA-Z]{12})/", $subj, $matches)) {
+			return $matches[1];
+	}
+
+	return false;
+}
+
+function chaos_subscriptions_parse_email($text) {
+	$delimiters = array(
+		"On \d{1,2}[\/\-]{1}\d{1,2}[\/\-]{1}\d{1,2},", // Gmail form 1
+		"On \w{3}, \w{3} \d{1,2}, \d{4} at \d{1,2}:\d{1,2} [AP]M", // Gmail form 1
+		"On \w{3}, \w{3} \d{1,2}, \d{4} at \d{1,2}:\d{1,2} [AP]M", // Gmail form 2
+		"On \d{1,2}\/\d{1,2}\/\d{4} \d{1,2}:\d{1,2} [AP]M,", // Thunderbird
+		"On [A-Z][a-z]{2} [0-9]{1,2}, [0-9]{4}, at [0-9]{1,2}:[0-9]{2} [AP]M, [a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4} wrote", // Mac mail form 1
+		"On [A-Z][a-z]{2} [0-9]{1,2}, [0-9]{4}, at [0-9]{1,2}:[0-9]{2} [AP]M,", // Mac mail form 2
+		"On \d{1,2} \w{3} \d{4}, at \d{1,2}:\d{2} [AP]M, [a-zA-Z0-9._%-]+@?[a-zA-Z0-9.-]*[\.]?[a-zA-Z]{0,4} wrote:", // Mac mail v4.2
+		"-----\s?Original Message\s?-----", // Outlook Express
+		"From:(\s*)[A-Za-z0-9._%+-]+@[A-Za-z0-9._%+-]+\.[A-Za-z]{2,3}(\s*)\[mailto:[A-Za-z0-9._%+-]+@[A-Za-z0-9._%+-]+\.[A-Za-z]{2,3}\]", // Outlook legacy
+		"[_]*\nFrom:", // Yahoo + Outlook web
+		"From:.*Sent:.*To:.*Subject:", // Fallback
+	);
+
+	if ($marker = variable_get('chaos_subscriptions_reply_text', t('((( Reply ABOVE this LINE to POST a COMMENT )))'))) {
+		$delimiters[] = '[\> ]*' . preg_quote($marker);
+	}
+
+	$expression = '/(' . implode('|', $delimiters) . ')/';
+
+	if (preg_match($expression, $text, $matches, PREG_OFFSET_CAPTURE)) {
+		$text = trim(drupal_substr($text, 0, $matches[0][1]));
+	}
+
+	return $text;
+}
+*/

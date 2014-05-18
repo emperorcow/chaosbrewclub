@@ -1,0 +1,13 @@
+.view-brewhouse-image-slider img {
+	width: auto;
+	height: auto;
+	max-width: none;
+	max-height: none;
+	line-height: normal;
+}
+
+div.nivo-slider-center div.views-nivo-slider-view{
+	width: 360px;
+	margin: 0 auto;
+	padding-top: 15px;
+}

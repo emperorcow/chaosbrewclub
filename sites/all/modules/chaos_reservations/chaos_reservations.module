@@ -1,0 +1,605 @@
+<?php
+
+
+function chaos_reservations_help($path, $arg) { //{{{
+	switch($path) {
+		case "admin/help#chaos_reservations":
+			return '<p>'. t("Handles brewhouse reservations.").'</p>';
+		break;
+	}
+} //}}}
+
+function chaos_reservations_permission() { //{{{
+        $permissions['access brew house'] = array(
+                'title' => t('Create brewhouse reservation'),
+                'description' => t('Brew, bottle, transfer, etc.'),
+        );
+        $permissions['close brew house'] = array(
+                'title' => t('Close the Brewhouse'),
+                'description' => t('Disallow all brewhouse reservations (brewing, bottling, etc.)'),
+        );
+
+        return $permissions;
+} //}}}
+
+function chaos_reservations_menu() { //{{{
+	$items = array();
+	$items['brewhouse/reservation/new'] = array(
+		'title' => 'New Brewing Reservation',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('chaos_reservations_reservation_form', 'new'),
+		'access arguments' => array('access brew house'),
+	);
+	$items['brewhouse/reservation/%/edit'] = array(
+		'title' => 'Edit Brewing Reservation',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('chaos_reservations_reservation_form', 'edit', 2),
+		'access arguments' => array('access brew house'),
+	);
+
+	return $items;
+} //}}}
+
+function chaos_reservations_form_alter(&$form, $form_state, $form_id) { //{{{
+	if($form_id == 'brewhouse_reservation_node_form') {
+		$node = $form_state['node'];
+		if(isset($node->nid) && !isset($node->is_new)) {
+			drupal_goto("brewhouse/reservation/{$node->nid}/edit");
+		} else {
+			drupal_goto("brewhouse/reservation/new");
+		}
+	}
+} //}}}
+
+function _chaos_reservations_get_bays() { //{{{
+	return array(
+		0 => array(
+			'name' => 'Close Brewhouse',
+			'coords' => null,
+			'visible' => false,
+			'selectable' => false,
+			'selected' => false,
+			'function' => 'close',
+		),
+		1 => array(
+			'name' => 'Bay 1',
+			'coords' => '102,8,190,125',
+			'visible' => true,
+			'selectable' => true,
+			'selected' => false,
+			'function' => 'brew',
+		),
+		2 => array(
+			'name' => 'Bay 2',
+			'coords' => '196,8,283,125',
+			'visible' => true,
+			'selectable' => true,
+			'selected' => false,
+			'function' => 'brew',
+		),
+		3 => array(
+			'name' => 'Bay 3',
+			'coords' => '290,8,377,125',
+			'visible' => true,
+			'selectable' => true,
+			'selected' => false,
+			'function' => 'brew',
+		),
+		4 => array(
+			'name' => 'Bay 4',
+			'coords' => '385,8,472,125',
+			'visible' => true,
+			'selectable' => true,
+			'selected' => false,
+			'function' => 'brew',
+		),
+		5 => array(
+			'name' => 'Bottling 1',
+			'coords' => '196,144,283,261',
+			'visible' => true,
+			'selectable' => true,
+			'selected' => false,
+			'function' => 'bottling',
+		),
+		6 => array(
+			'name' => 'Bottling 2',
+			'coords' => '290,144,377,261',
+			'visible' => true,
+			'selectable' => true,
+			'selected' => false,
+			'function' => 'bottling',
+		),
+	);
+
+} //}}}
+
+function _chaos_reservations_get_bay_function($id) { //{{{
+	$bays = _chaos_reservations_get_bays();
+	return $bays[$id]['function'];
+} //}}}
+
+function chaos_reservations_reservation_form($form, $form_state, $action, $id = null) { //{{{
+	$path = drupal_get_path('module', 'chaos_reservations');
+	$bays = _chaos_reservations_get_bays();
+	$form = _chaos_reservations_get_form_defaults($path);
+
+	if((!empty($form_state['values']['start']) && !empty($form_state['values']['end'])) || 
+	  ($action == 'edit' && isset($id))) {
+		$start = '';
+		$end = '';
+
+		if($action == 'edit') {
+			$node = node_load($id);
+			$tz = new DateTimeZone($node->field_date[$node->language][0]['timezone_db']);
+			$start = new DateObject($node->field_date[$node->language][0]['value'], $tz);
+			$end = new DateObject($node->field_date[$node->language][0]['value2'], $tz);
+
+			$bayid = $node->field_brew_bay[$node->language][0]['value'];
+			$form['brew_bay']['bay']['#default_value'] = $bayid;
+			$bays[$bayid]['selected'] = true;
+			drupal_add_js(array('chaos_reservations_map_default_visibility' => true), 'setting');
+			drupal_add_js(array('chaos_reservations_map_initial_select' => $bayid), 'setting');
+			$form['cancel'] = array(
+				'#type' => 'submit',
+				'#value' => 'Cancel Reservation',
+			);
+		} else {
+			$start = new DateObject($form_state['values']['start']);
+			$end = new DateObject($form_state['values']['end']);
+			$form['brew_bay']['bay']['#default_value'] = $form_state['values']['bay'];
+		}
+
+		$start->setTimezone(new DateTimeZone(date_default_timezone()));
+		$end->setTimezone(new DateTimeZone(date_default_timezone()));
+		$form['reservation_time']['start']['#default_value'] = $start->format(DATE_FORMAT_DATETIME);
+		$form['reservation_time']['end']['#default_value'] = $end->format(DATE_FORMAT_DATETIME);
+		
+		$bays = _chaos_reservations_get_available_bays($start, $end, $bays);
+
+		if(user_access('close brew house')) {
+			$form['brew_bay']['close'] = array(
+				'#type' => 'checkbox',
+				'#title' => 'Disable Brewhouse reservations during time period.',
+				'#default_value' => isset($form_state['values']['close']) ? $form_state['values']['bay'] : false,
+			);
+			$form['brew_bay']['close_text'] = array(
+				'#type' => 'textfield',
+				'#title' => t('Reason for closure'),
+				'#size' => 60,
+			);
+		}
+
+		$form['brew_bay']['baymap'] = array(
+			'#markup' => _chaos_reservations_generate_reservation_list($bays, $id) . 
+			             _chaos_reservations_generate_imagemap("brewhouse", "/$path/images", $bays),
+		);
+
+		$form['brew_bay']['bay'] = array(
+			'#type' => 'select',
+			'#title' => t('Brew Bay'),
+			'#options' => _chaos_reservations_generate_optionslist($bays),
+			'#default_value' => isset($form_state['values']['bay']) ? $form_state['values']['bay'] : 1,
+		);
+
+		_chaos_reservations_set_bay_js($bays);
+	}
+
+	return $form;	
+} //}}}
+
+function _chaos_reservations_get_form_defaults($path) { //{{{
+	$form = array();
+
+	$form['#attached']['css'] = array(
+		"$path/chaos_reservations_form.css",
+	);
+	$form['#attached']['js'] = array(
+		"$path/scripts/jquery.imagemapster.js",
+		"$path/scripts/brewhousemap.js",
+	);
+
+	$form['reservation_time'] = array(
+		'#type' => 'fieldset',
+		'#title' => 'Reservation Time',
+		'#description' => t('Please select the times you would like to brew to check if the bays are available'),
+		'start' => array(
+			'#type' => 'date_popup',
+			'#title' => t('Start Time'),
+			'#description' => t("Please enter the time you would like your reservation to begin."),
+			'#default_value' => date('o-m-dT06:00:00') . date('P'),
+			'#date_increment' => 15,
+			'#date_year_range' => '0:+1',
+		),
+		'end' => array(
+			'#type' => 'date_popup',
+			'#title' => 'End Time',
+			'#default_value' => date('o-m-dT12:00:00') . date('P'),
+			'#date_increment' => 15,
+			'#date_year_range' => '0:+1',
+		),
+		'check' => array(
+			'#type' => 'button',
+			'#value' => 'Check Availability',
+			'#ajax' => array(
+				'callback' => 'chaos_reservations_form_callback',
+				'wrapper' => 'reservationdiv',
+				'effect' => 'none',
+			),
+		),
+	);
+	$form['brew_bay'] = array(
+		'#type' => 'fieldset',
+		'#title' => 'Brew Bay',
+		'#prefix' => '<div id="reservationdiv">', 
+		'#suffix' => '</div>', 
+		'#description' => 'Please select from the available bays if you will be brewing.  For non-brewing activities (transfering, bottling, etc.) please select one of the bottling bays.',
+		'#collapsable' => true,
+		'#collapsed' => true,
+	);
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => 'Finalize Reservation',
+	);
+
+	return $form;
+} //}}}
+
+function chaos_reservations_form_callback($form, $form_state) { //{{{
+	return $form['brew_bay'];
+} //}}}
+
+function chaos_reservations_reservation_form_validate($form, $form_state) { //{{{
+	if($form_state['values']['op'] == 'Cancel Reservation') {
+		if($form_state['build_info']['args'][0] == 'edit') {
+			$node = node_load($form_state['build_info']['args'][1]);
+
+			global $user;
+			if($node->uid != $user->uid && !user_access('bypass node access')) {
+				form_set_error('brew_bay', t("You don't have access to cancel this reservation"));
+			}
+		} else {
+			form_set_error('brew_bay', t("You can't cancel a reservation without having one selected first."));
+		}
+
+	}
+	if($form_state['values']['op'] == 'Finalize Reservation') {
+		drupal_add_js(array('chaos_reservations_map_default_visibility' => true), 'setting');
+
+		if(!user_access('access brew house')) {
+			form_set_error('reservation_time',t("I'm sorry, but you aren't a brewing level member.  Please signup for a <a href='/membership'>membership first."));
+		}
+
+		if(isset($form_state['values']['close']) || $form_state['values']['bay'] == 0) {
+			if(!user_access('close brew house')) {
+				form_set_error('reservation_time',t("You don't have the access to do that."));
+			}
+		}
+
+		$bays = _chaos_reservations_get_bays();
+		if(!isset($bays[$form_state['values']['bay']])) {
+			form_set_error('brew_bay', t('Unknown Brew Bay, please try again.'));
+		}
+	
+		$start = new DateObject($form_state['values']['start']);
+		$end = new DateObject($form_state['values']['end']);
+		if($end->difference($start, 'seconds', false) == 0){
+			form_set_error('end', t('End time cannot be the same as the start time.'));
+		} elseif($end->difference($start, 'seconds', false) > 0){
+			form_set_error('end', t('End time cannot be before the start time.'));
+		}
+
+
+		$bays = _chaos_reservations_get_available_bays($start, $end, $bays);
+		$nid = null;
+		if(isset($form_state['build_info']['args'][1])) {
+			$nid = $form_state['build_info']['args'][1];
+		}
+		if(!_chaos_reservations_check_bay($form_state['values']['bay'], $bays, $nid)) {
+			form_set_error('brew_bay', t('!name is not available at that time.', array('!name' => $bays[$form_state['values']['bay']]['name'])));
+		}
+	}
+} //}}}
+
+function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
+	if($form_state['values']['op'] == 'Cancel Reservation') {
+		node_delete($form_state['build_info']['args'][1]);
+		drupal_set_message($form_state['build_info']['args'][1] . ' deleted.');
+		drupal_goto('brewhouse/reservations');
+	}
+	if($form_state['values']['op'] == 'Finalize Reservation') {
+		$form_state['redirect'] = 'brewhouse/reservations';
+		$bays = _chaos_reservations_get_bays();
+	
+		$start = new DateObject($form_state['values']['start']);
+		$start->setTimezone(new DateTimeZone('UTC'));
+		$end = new DateObject($form_state['values']['end']);
+		$end->setTimezone(new DateTimeZone('UTC'));
+	
+		$node = new stdClass();
+		if($form_state['values']['close'] == 1) {
+			$form_state['values']['bay'] = 0;
+		}
+
+		if($form_state['build_info']['args'][0] == 'edit') {
+			$node = node_load($form_state['build_info']['args'][1]);
+		} else {
+			$node->type = 'brewhouse_reservation';
+			node_object_prepare($node);
+			$node->language = LANGUAGE_NONE;
+		}
+		
+		if($form_state['values']['close'] == 1) {
+			$title = t('Brewhouse closed for @reason', array(
+					'@reason' => $form_state['values']['close_text']));
+		} else {
+			$title = t('Reservation for @bay on @date', array(
+					'@bay' => $bays[$form_state['values']['bay']]['name'],
+					'@date' => _chaos_reservations_format_date_range($start, $end),
+			));
+		}
+	
+		$node->title = $title;
+	
+		$node->field_brew_bay[$node->language][0]['value'] = $form_state['values']['bay'];
+		$node->field_date[$node->language][0]['value'] = $start->format(DATE_FORMAT_DATETIME);
+		$node->field_date[$node->language][0]['value2'] = $end->format(DATE_FORMAT_DATETIME);
+	
+		node_save($node);
+		drupal_set_message($title . ' saved.');
+		drupal_goto('brewhouse/reservations');
+	}
+} //}}}
+
+function _chaos_reservations_generate_optionslist($available_bays) { //{{{
+	$tmp = array();
+
+	for($i = 0; $i < count($available_bays); $i++) {
+		$tmp[$i] = $available_bays[$i]['name'];
+	}
+
+	return $tmp;
+} //}}}
+
+function _chaos_reservations_generate_unavailable_images($imgsrc, $bays) { //{{{
+	$tmp = '';
+
+	for($i=0; $i < count($bays); $i++) {
+		if($bays[$i]['visible'] && !$bays[$i]['selectable'] && !$bays[$i]['selected']) {
+			$coords = explode(',', $bays[$i]['coords']);
+			$tmp .= "<img src='{$imgsrc}/unavailable.png' style='position: absolute; top:{$coords[1]}px; left:{$coords[0]}px;'>";
+		}
+	}
+
+	return $tmp;
+} //}}}
+
+function _chaos_reservations_generate_reservation_list($bays, $nid = null) { //{{{
+	$tmp = '<div id="conflicts">The following reservations occur within the time you have selected:<ul>';
+	$flag = false;
+	for($i=0; $i < count($bays); $i++) {
+		if(!empty($bays[$i]['reservations'])) {
+			$flag = true;
+			foreach($bays[$i]['reservations'] as $res) {
+				if(!empty($nid) && $nid == $res['nid']) 
+					continue; 
+
+				$user = user_load($res['uid']);
+				$time = _chaos_reservations_format_date_range($res['start'], $res['end']);
+				$tmp .= format_string("<li>!bay: <a href='/user/!uid'>@name</a> (<a href=/membership>@level</a>) - !time</li>", array(
+									'!bay' => $bays[$i]['name'], 
+									'!uid' => $user->uid,
+									'@name' => $user->name,
+									'@level' => _chaos_reservations_get_user_level($user),
+									'!time' => $time,
+				));
+			}
+		}
+	}
+	$tmp .= "</ul></div>";
+	if($flag) {
+		return $tmp;
+	} else {
+		return null;
+	}
+} //}}}
+
+function _chaos_reservations_get_user_level($user) { //{{{
+	$roles = array_values($user->roles);
+	if(in_array('alchemist', $roles)) {
+		return 'Alchemist';
+	} elseif (in_array('brewer', $roles)) {
+		return 'Brewer';
+	} elseif (in_array('brewer_intro', $roles)) {
+		return 'Brewer (Intro)';
+	} elseif (in_array('apprentice', $roles)) {
+		return 'Apprentice';
+	} elseif (in_array('trial', $roles)) {
+		return 'Trial';
+	} else {
+		return false;
+	}
+} //}}}
+
+function _chaos_reservations_format_date_range($startTime, $endTime) { //{{{
+	$start = clone $startTime;
+	$end = clone $endTime;
+
+	$start->setTimezone(new DateTimeZone(date_default_timezone()));
+	$end->setTimezone(new DateTimeZone(date_default_timezone()));
+
+	$sdate = format_date($start->format(DATE_FORMAT_UNIX), 'date_only');
+	$stime = format_date($start->format(DATE_FORMAT_UNIX), 'shortened_time_only');
+	$edate = format_date($end->format(DATE_FORMAT_UNIX), 'date_only');
+	$etime = format_date($end->format(DATE_FORMAT_UNIX), 'shortened_time_only');
+
+	if($sdate == $edate) {
+		return format_string("@date from @start to @end", array('@date' => $sdate, '@start' => $stime, '@end' => $etime));
+	} else {
+		return format_string("@sdate @stime to @edate @etime", array('@sdate' => $sdate, '@stime' => $stime, '@edate' => $edate, '@etime' => $etime));
+	}
+} //}}}
+
+function _chaos_reservations_generate_imagemap($id, $imgsrc, $bays) { //{{{
+	$tmp = "<div id='reservationmapimg'><img src='{$imgsrc}/map-available.jpg' id='{$id}_img' usemap='#{$id}_map'>"; 
+	$tmp .= _chaos_reservations_generate_unavailable_images($imgsrc, $bays);
+	$tmp .= "<map id='{$id}_map' name='{$id}_map'>";
+
+	for($i=0; $i < count($bays); $i++) {
+		if($bays[$i]['visible']) {
+			$tmp .= "<area shape='rect' class='bay{$i}' data-bay='{$i}' coords='{$bays[$i]['coords']}' ";
+			if($bays[$i]['selectable'] || $bays[$i]['selected']) {
+				$tmp .= "href='#'>";
+			} else {
+				$tmp .= "nohref>";
+			}
+		}
+	}
+	$tmp .= "</map></div>";
+
+	return $tmp;
+} //}}}
+
+function _chaos_reservations_set_bay_js($bays) { //{{{
+	$tmp = array();
+
+	for($i = 0; $i < count($bays); $i++) {
+		$tmp[] = array(
+			'key' => $i,
+			'isSelectable' => $bays[$i]['selectable'],
+			'selected' => $bays[$i]['selected'],
+		);
+	}
+
+	drupal_add_js(array('chaos_reservations_bay_selectability' => $tmp), 'setting');
+} //}}}
+
+function _chaos_reservations_check_bay($bayid, $bays, $nid) { //{{{
+	$bay = $bays[$bayid];
+
+	if($bays[0]['selected']) {
+		return false;
+	}
+
+	if($bay['selectable']) {
+		return true;
+	}
+
+
+	$allow_reservation = true; //Lets just check and see if the current reservation is the only one on this bay for that time period.  If so, great!  You can have it.  If not, too bad. 
+	for($i = 0; $i < count($bay['reservations']); $i++) {
+		if(isset($nid)) {
+			if($bay['reservations'][$i]['nid'] != $nid) {
+				$allow_reservation = false;
+			}
+		} else {
+			$allow_reservation = false;
+		}
+	}
+
+	return $allow_reservation;
+} //}}}
+
+function _chaos_reservations_get_available_bays($startTime, $endTime, $bays) { //{{{
+	$used = _chaos_reservations_lookup_used_bays($startTime, $endTime); 
+
+	if(isset($used[0])) {
+		for($i = 0; $i < count($bays); $i++) {
+			$bays[$i]['selectable'] = false;
+		}
+		return $bays;
+	}
+
+
+	foreach($used as $bay => $value) {
+		if(!$bays[$bay]['selected'])
+			$bays[$bay]['selectable'] = false;
+		$bays[$bay]['reservations'] = $value;
+	}
+
+	return $bays;
+} //}}}
+
+function _chaos_reservations_lookup_used_bays($startTime, $endTime) { //{{{
+	$startTime->setTimezone(new DateTimeZone('UTC'));
+	$endTime->setTimezone(new DateTimeZone('UTC'));
+
+	$result = db_query("
+		SELECT 
+			node.nid AS nid,
+			node.uid AS uid,
+			tbldate.field_date_value AS startdate, 
+			tbldate.field_date_value2 AS enddate, 
+			tblbay.field_brew_bay_value AS bay 
+		FROM {field_revision_field_date} AS tbldate 
+			JOIN {field_revision_field_brew_bay} AS tblbay
+			 ON tbldate.entity_id = tblbay.entity_id 
+			JOIN {node} AS node
+			 ON tbldate.entity_id = node.nid
+		WHERE field_date_value BETWEEN :start1 AND :end1
+			OR field_date_value2 BETWEEN :start2 AND :end2
+		", array(
+			':start1' => $startTime->format(DATE_FORMAT_DATETIME), 
+			':end1' => $endTime->format(DATE_FORMAT_DATETIME),
+			':start2' => $startTime->format(DATE_FORMAT_DATETIME),
+			':end2' => $endTime->format(DATE_FORMAT_DATETIME),
+		));
+
+	/*dpm(t("
+		SELECT 
+			node.nid AS nid,
+			node.uid AS uid,
+			tbldate.field_date_value AS startdate, 
+			tbldate.field_date_value2 AS enddate, 
+			tblbay.field_brew_bay_value AS bay 
+		FROM {field_revision_field_date} AS tbldate 
+			JOIN {field_revision_field_brew_bay} AS tblbay
+			 ON tbldate.entity_id = tblbay.entity_id 
+			JOIN {node} AS node
+			 ON tbldate.entity_id = node.nid
+		WHERE field_date_value BETWEEN !start1 AND !end1
+			OR field_date_value2 BETWEEN !start2 AND !end2
+		", array(
+			'!start1' => $startTime->format(DATE_FORMAT_DATETIME), 
+			'!end1' => $endTime->format(DATE_FORMAT_DATETIME),
+			'!start2' => $startTime->format(DATE_FORMAT_DATETIME),
+			'!end2' => $endTime->format(DATE_FORMAT_DATETIME),
+	)));*/
+
+	if($result) {
+		$tmpbays = array();
+	
+		while($row = $result->fetchAssoc()) {
+			$tmpbays[$row['bay']][] = array(
+				'nid' => $row['nid'],
+				'uid' => $row['uid'],
+				'start' => new DateObject($row['startdate'], new DateTimeZone('UTC')),
+				'end' => new DateObject($row['enddate'], new DateTimeZone('UTC')),
+			);
+		}
+
+		return $tmpbays;
+	} else {
+		return false;
+	}
+} //}}}
+
+//{{{ Views Setup
+function chaos_reservations_fullcalendar_classes_alter(&$classes, $entity) {
+	if($entity->type == 'brewhouse_reservation') {
+		$bayid = $entity->field_brew_bay[$entity->language][0]['value'];
+		$classes[] = 'reservationtype_'._chaos_reservations_get_bay_function($bayid);
+
+		$user = user_load($entity->uid);
+		$role = _chaos_reservations_get_user_level($user);
+		$classes[] = 'reservation_'.strtolower($role);
+	}
+}
+
+function chaos_reservations_preprocess_fullcalendar(&$variables) {
+	if($variables['view']->name == 'brewhouse_reservations') {
+		$path = drupal_get_path('module', 'chaos_reservations');
+		$variables['element']['#attached']['css'][] = $path.'/chaos_reservations_calendar.css';
+	}
+}
+//}}}

@@ -1,0 +1,4 @@
+name = CHAOS Forum Access Limitations
+description = Limit access to post new nodes in the Announcements forums.
+core = 7.x
+package = CHAOS Brew Club

@@ -1,0 +1,75 @@
+#menu-bar {
+	top: 0; 
+	position: fixed;
+	z-index: 200;
+	width: 990px;
+	background: url("./images/mainmenu-bg.jpg");
+	margin-left: 10px;
+	padding-right: 10px;
+}
+
+#menu-bar nav#block-superfish-1 {
+	float: left;
+}
+#menu-bar nav {
+	float: right;
+	margin-left: 5px;
+}
+
+#menu-bar .block {
+	background: transparent;
+}
+
+#menu-bar ul li.sf-depth-1 {
+	padding-left: 5px !important;
+}
+
+#menu-bar ul li a {
+	font-family: "Oswald";
+	height: 32px;
+	line-height: 32px;
+}
+
+#menu-bar ul li.menuparent {
+	margin-right: 16px;
+	padding-right: 0px;
+	background: url("./images/mainmenu-bg-arrow-white.png") no-repeat right;
+}
+#menu-bar ul li.menuparent:hover {
+	background: url("./images/mainmenu-bg-arrow-dark.png") no-repeat right;
+}
+
+#menu-bar ul li.menuparent ul {
+	padding-top: 18px;
+	padding-left: 10px;
+}
+
+#menu-bar ul li.sf-depth-1 a {
+	color: #fff;
+	padding: 10px 1em 10px 1em;
+	border: none;
+	background: none;
+	font-weight: 300;
+	font-size: 1.2em;
+}
+
+#menu-bar ul li.sf-depth-2 a {
+	padding: 0px 1em 0px 1em;
+	background-color: #393939;
+	font-size: 1.1em;
+}
+
+#menu-bar ul li a:hover, #menu-bar ul li.sf-depth-1:hover, 
+#menu-bar ul li.sfHover {
+	color: #BC725E !important;
+	background-color: transparent;
+}
+#menu-bar ul li.sf-depth-2 a:hover, #menu-bar ul li.sf-depth-2 a:active, 
+#menu-bar ul li.sf-depth-2 a:focus, #menu-bar ul li.sf-depth-2:hover {
+	color: #ffffff !important;
+	background-color: #BC573C;
+}
+
+.sf-menu li:hover > ul, .sf-menu li.sfHover > ul {
+	top: 3.5em;
+}

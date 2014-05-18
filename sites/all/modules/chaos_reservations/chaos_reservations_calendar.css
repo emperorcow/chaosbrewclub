@@ -1,0 +1,44 @@
+.fc-event-default .fc-event-time, .fc-event-default a {
+	background-color: transparent;
+	border-style: none;
+}
+
+a.brewhouse-reservation .fc-event-skin {
+	border-style: solid;
+}
+
+a.reservationtype-brew.reservation-alchemist, 
+a.reservationtype-brew.reservation-alchemist .fc-event-skin {
+	background-color: #fd8b12;
+	border-color: #98530B;
+}
+a.reservationtype-brew.reservation-brewer, 
+a.reservationtype-brew.reservation-brewer .fc-event-skin {
+	background-color: #cc3338;
+	border-color: #661A1C;
+}
+a.reservationtype-brew.reservation-brewer-intro, 
+a.reservationtype-brew.reservation-brewer-intro .fc-event-skin {
+	background-color: #33c8cc;
+	border-color: #145052;
+}
+a.reservationtype-brew.reservation-apprentice, 
+a.reservationtype-brew.reservation-apprentice .fc-event-skin {
+	background-color: #3380cc;
+	border-color: #143352;
+}
+a.reservationtype-brew.reservation-trial, 
+a.reservationtype-brew.reservation-trial .fc-event-skin {
+	background-color: #339999;
+	border-color: #143D3D;
+}
+a.reservationtype-bottling, 
+a.reservationtype-bottling .fc-event-skin {
+	background-color: #00CC00;
+	border-color: #003D00;
+}
+a.reservationtype-close, 
+a.reservationtype-close .fc-event-skin {
+	background-color: #999999;
+	border-color: #333333;
+}

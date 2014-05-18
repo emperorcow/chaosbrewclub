@@ -1,0 +1,226 @@
+/***************************************** Global Link Style *****************************************/
+a, a:active, a:link, a:visited, a:active, a:focus, a.active, a.active:hover {
+	text-decoration: none;
+}
+a:active, a:focus { color: #79210B; }
+a:hover { color: #0A374D; }
+a { color: #79210B; }
+/***************************************** Global Page Style *****************************************/
+body {
+	background: #CDCED0 url('/sites/all/themes/chaostheme/css/desktop/images/page-bg.png') repeat-x 0 0;
+	margin:0px 0px 0px 0px;
+}
+#page {
+	position: relative;
+	margin-top: 65px;
+}
+
+#region-sidebar.fixed {
+	position: fixed;
+	width: 300px;
+	top: 70px;
+}
+
+.region-sidebar-first img#logo {
+	margin-left: 13px;
+}
+
+.region-sidebar-first > div {
+	margin-right: 10px;
+}
+
+div#content-column > div.content-inner {
+	padding-top: 10px;
+	padding-bottom: 10px;
+	margin-bottom: 10px;
+}
+div#content-column > div.content-inner, .block-inner {
+	background: #fff repeat 0 0;
+}
+/*div#content-column > div.content-inner {
+	margin-left:31%;
+	padding-bottom: 15px;
+}*/
+
+div#block-block-2 > div.block-inner {
+	background: transparent;
+	margin-bottom:0px;
+}
+header#main-content-header {
+	padding: 10px 0;
+}
+
+/**************************************** Search Block Style *****************************************/
+input[type="search"] {
+    width: 200px;
+}
+
+/***************************************** Side Block Styles *****************************************/
+.sidebar div.block-inner h2.block-title {
+	background: url(./images/block-title-bg.jpg) repeat-y 0 0;
+	font-family: "Trebuchet MS",Arial,Helvetica,sans-serif;
+	font-weight: 700;
+	color: #fff;
+	text-align: center;
+	padding: 3px 0;
+	text-transform: uppercase;
+}
+.sidebar div.block-inner ul {
+	margin-left: 0px;
+}
+.sidebar div.block-inner li {
+	list-style: none outside none;
+	border-style: none none dotted none;
+	border-color: #aaaaaa;
+	margin: 0px;
+	border-width: 1px;
+	padding: 5px;
+}
+.sidebar div.block-inner li.last { 
+	border-style: none;
+}
+.sidebar div.block-inner div.more-link {
+	display: none;
+}
+.sidebar div.block-inner .block-content {
+	padding-top: 0px;
+}
+/******************************************** Become A Member Block ********************************/
+#block-block-3 div.block-content {
+	padding: 5px;
+}
+/******************************************** Online User Block ********************************/
+#block-user-online ul {
+	padding-bottom: 5px;
+}
+#block-user-online p, #block-user-online li {
+	margin: 0;
+	padding: 3px 5px;
+	border-style: none;
+	display: inline;
+}
+#block-user-online .block-content {
+	padding-top: 2px;
+}
+#block-user-online li {
+	float: left;
+}
+
+/******************************************** Media Galleries ********************************/
+.media-gallery-collection h2 {display: none;}
+.media-gallery {float: left;}
+a.media-gallery-thumb img,
+.media-gallery-detail img {
+  height: auto;
+  overflow: auto;
+  width: auto;  /* Make image take only as much as needed */
+}
+
+div.media-gallery-collection h1.node-title {
+	text-align: center;
+	margin-bottom: 0;
+	display: none;
+}
+
+.comment header, .submitted.with-user-picture div.user-picture, 
+.submitted.with-picture div.user-picture {
+}
+/***************************************** Tab Links *****************************************/
+ul.tabs li {
+	float: left;
+	padding-bottom: 1em;
+}
+
+ul.tabs li a {
+	border: 1px solid #2983CC;
+	padding: 0.25em 0.9em 0.3em;
+	background-color: #FDFDFD;
+}
+ul.tabs li a:hover {
+	border: 1px solid #FFA324;
+}
+ul.tabs li a.active, ul.tabs li a.active:hover {
+	border: 1px solid #cccccc;
+	color: #888888;
+	cursor: default;
+}
+
+.field .field-label {
+	font-family: 'Open Sans', Arial, sans-serif;
+	font-weight: 400;
+}
+/***************************************** Edit Forms *****************************************/
+div.form-actions input {
+	margin-right: 5px;
+}
+
+/***************************************** Subscription List *****************************************/
+table.forum_subscription_list td{
+	padding: 2px;
+}
+table.forum_subscription_list td.chaos_subscriptions_link {
+	text-align: center;
+}
+
+/***************************************** WYSIWYG - NicEdit *****************************************/
+.form-textarea-wrapper {
+	position: relative;
+}
+.form-textarea-wrapper > div {
+	background-color: #ffffff;
+}
+
+div.wysiwyg-toggle-wrapper {
+	position: absolute; 
+	bottom: -20px;
+	left: 5px;
+	background: transparent;
+}
+
+div.view-sponsors.view-display-id-block .views-field {
+	text-align: center;
+}
+
+div.view-sponsors tr, 
+div.view-sponsors table {
+	background: transparent;
+	border: none;
+}
+div.view-sponsors .view-footer {
+	text-align: center;
+}
+div.view-sponsors p {
+	font-size: .8em;
+	font-color: #372809;
+	margin: 3px 5px;
+}
+
+/***************************************** New Message Box *****************************************/
+section#block-privatemsg-privatemsg-new > div.block-inner {
+	border: solid #E71100 1px;
+}
+section#block-privatemsg-privatemsg-new h2.block-title {
+	background: #F3776D;
+	color: #960B00;
+}
+section#block-privatemsg-privatemsg-new div.block-content {
+	color: #960B00;
+	text-align: center;
+}
+
+/* Christmas Gift Block */
+section#block-block-6 p {
+	margin: 0 0;
+}
+
+div#block-views-projects-block div.view-footer {
+	text-align: right;
+}
+
+div#views_slideshow_cycle_main_random_gallery_image_block-block {
+	height: 190px;
+	padding: 5px 45px;
+}
+div#views_slideshow_cycle_main_random_gallery_image_block-block div.views-row div.views-field {
+	height: auto;
+}

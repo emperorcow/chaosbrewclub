@@ -1,0 +1,6 @@
+name = CHAOS Group Buy System
+description = System to manage group buys for the club
+core = 7.x
+package = CHAOS Brew Club
+dependencies[] = ms_core
+

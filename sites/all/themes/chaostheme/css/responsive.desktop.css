@@ -1,0 +1,22 @@
+/* This loads all of the files in the "desktop" directory so that we use a mobile first responsive theme.
+ *
+ */
+
+@import "desktop/base.css";
+@import "desktop/menu.css";
+@import "desktop/forums.css";
+
+/* Pages */
+@import "desktop/page_about_membership.css";
+@import "desktop/page_about_brewhouse.css";
+@import "desktop/page_front.css";
+@import "desktop/page_user.css";
+@import "desktop/gallery.css";
+
+/* Views */
+@import "desktop/view_globals_calendar.css";
+@import "desktop/view_projects.css";
+@import "desktop/view_recipes.css";
+@import "desktop/view_memberlist.css";
+@import "desktop/view_partners.css";
+@import "desktop/view_slider.css";

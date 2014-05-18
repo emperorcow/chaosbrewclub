@@ -1,0 +1,133 @@
+body.page-groupbuy h1 {
+	font-size: 1.5em;
+}
+
+div#groupbuy {
+	position: relative;
+}
+
+div#groupbuy h3 {
+	padding: 10px 0;
+}
+
+div#groupbuy_links_top {
+	position: absolute;
+	right: 5px;
+	top: -40px;
+}
+
+div#groupbuy_links_bottom {
+	padding: 20px 0 5px 0;
+}
+
+div#groupbuy_links_top div.link, div#groupbuy_links_bottom div.link {
+	float: right;
+}
+
+div#groupbuy_time {
+	text-align: center;
+	font-weight: bold;
+	font-size: 1.2em;
+	padding: 30px 0 10px 0;
+}
+
+div#groupbuy_time span.date {
+	color: #BC573C;
+}
+
+table#groupbuy_pallets td.id {
+	width: 10%;
+	font-weight: bold;
+	font-family: 'Open Sans', Arial, Helvetica, sans-serif;
+	font-size: 15px;
+	color: #111;
+	text-align: center;
+	text-shadow: 1px 1px #aaa;
+}
+
+table#groupbuy_pallets div.ui-progressbar {
+	height: 18px;
+	position: relative;
+	background: #aaa;
+}
+table#groupbuy_pallets div.ui-progressbar-value {
+	background: #3B6075;
+}
+table#groupbuy_pallets div.progressbar-label {
+	position: absolute;
+	width: 100%;
+	text-align: center;
+	line-height: 15px;
+	font-weight: bold;
+	text-shadow: 1px 1px 0 #000;
+	color: #fff;
+	padding-bottom:1px;
+}
+
+div.groupbuy-subcategory {
+	border: 1px solid #000000;
+	padding: 4px;
+	background-color: #f3f3f3;
+}
+
+div.groupbuy-subcategory div.ctools-collapsible-handle {
+	font-family: "Open Sans", Arial, Helvetica, sans-serif;
+	font-size: 1.1em;
+	font-weight: bold;
+	color: #79210B;
+}
+
+div.groupbuy-subcategory div.ctools-collapsible-content {
+	background-color: #fff;
+}
+
+div.groupbuy-subcategory table {
+	margin: 3px 0 0;
+	border: 1px solid #8aabbb;
+	table-layout: fixed;
+}
+
+div.groupbuy-subcategory table thead {
+	background-color: #D7BC9E;
+}
+
+div.groupbuy-subcategory table thead th {
+	color: #5b3e1d;
+}
+
+div.groupbuy-subcategory table tbody {
+	font-size: .9em;
+}
+
+div.groupbuy-subcategory table span.size {
+	font-size: .9em;
+	font-style: italic;
+	color: #008500;
+}
+
+div.groupbuy-subcategory table tr.groupbuy-product-description td {
+	font-size: .9em;
+	font-style: italic;
+	padding: 5px 20px;
+	color: #3B6075;
+}
+
+div.groupbuy-subcategory table td.itemid { width: 20%; }
+div.groupbuy-subcategory table td.title { width: 50%; }
+div.groupbuy-subcategory table td.price { width: 15%; }
+div.groupbuy-subcategory table td.link { width: 15%; }
+
+div.groupbuy-subcategory table tr.odd {
+	background-color: rgba(0, 0, 0, 0.1);
+}
+
+div.groupbuy-subcategory table tr.even {
+	background-color: none;
+}
+
+div.groupbuy-subcategory a.groupbuy-product-add-link {
+	color: #79210B;
+}
+div.groupbuy-subcategory a.groupbuy-product-add-link:hover {
+	color: #0A374D;
+}

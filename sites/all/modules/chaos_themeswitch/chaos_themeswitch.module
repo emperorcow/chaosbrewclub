@@ -1,0 +1,9 @@
+<?php
+
+function chaos_themeswitch_custom_theme() {
+	global $base_url;
+	$uri = explode('/', $base_url);
+	if($uri[2] === "m.chaosbrewclub.net") {
+		return 'touchm';
+	}
+}

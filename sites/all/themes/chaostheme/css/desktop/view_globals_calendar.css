@@ -1,0 +1,31 @@
+.view-events-calendar .view-footer,
+.view-brewhouse-reservations .view-footer {
+  padding:0 20px 20px 20px;
+  font-size:0.8em;
+}
+.view-events-calendar #legend,
+.view-brewhouse-reservations #legend {
+  color:#aaaaaa;
+  background-color:rgba(0, 0, 0, 0.7);
+  line-height:3em;
+  float:right;
+  margin-top: 10px;
+  padding: 0 15px;
+}
+.view-events-calendar #legend > ul,
+.view-brewhouse-reservations #legend > ul{
+	margin: 0;
+}
+
+.view-events-calendar #legend li,
+.view-brewhouse-reservations #legend li {
+  float: left;
+  margin-left: 12px;
+  margin-right: 12px;
+  margin-bottom: 2px;
+  list-style: none outside none;
+}
+.ui-state-highlight.fc-today {
+  background: none repeat scroll 0 0 #FFFFCC;
+  border-color: #AAAAAA;
+} 

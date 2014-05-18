@@ -1,0 +1,7 @@
+name = CHAOS Brewhouse Reservations
+description = Handles brewhouse reservations, including providing access to view the systems and create new ones. 
+package = CHAOS Brew Club
+core = 7.x
+dependencies[] = views
+dependencies[] = date
+

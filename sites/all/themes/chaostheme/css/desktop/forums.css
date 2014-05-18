@@ -1,0 +1,44 @@
+.author-pane .picture img {
+	width: 110px;
+}
+
+.forum-node-create-links {
+	float: left;
+	padding-bottom: 20px;
+	width: 35%;
+}
+
+.forum-pager ul.pager {
+	width: 65%;
+}
+#forum-pager-top ul.pager {
+	padding-top: 35px;
+}
+.forum-pager ul.pager li {
+	margin: 3px;
+}
+.forum-pager li.pager-current {
+	padding: 1px 3px;
+	background-color: #BC573C;
+	border: 1px solid #843D2A;
+}
+
+body.node-type-project section.field {
+	height: 18px;
+}
+
+body.node-type-project section.field h2 {
+	font-weight: 600;
+}
+
+body.node-type-project section.field.field-name-body {
+	height: auto;
+}
+
+.view-id-projects thead {
+	background: url('images/forum-bg.jpg') repeat scroll 0 0 #BC725e;
+}
+
+.view-id-projects th, .view-id-projects th a {
+	color: #ffffff;
+}

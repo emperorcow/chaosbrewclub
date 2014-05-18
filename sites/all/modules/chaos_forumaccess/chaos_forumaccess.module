@@ -1,0 +1,23 @@
+<?php
+function chaos_forumaccess_permission() {
+	$permissions['post new announcement'] = array(
+		'title' => t('Post new announcements'),
+		'description' => t('Post new threads in the announcements forum.'),
+	);
+
+	return $permissions;
+}
+
+function chaos_forumaccess_node_validate(&$node, &$form, &$form_state) {
+	if(! is_object($node)) {
+		return;
+	}
+	if($node->type === 'forum') {
+		if($node->taxonomy_forums[$node->language][0]['tid'] == 140) {
+			$account = user_load($node->uid);
+			if(!user_access('post new announcement', $account)) {
+				form_set_error('taxonomy_forums', t("You don't have the permissions to start a new thread in this forum."));
+			}
+		}
+	}
+}

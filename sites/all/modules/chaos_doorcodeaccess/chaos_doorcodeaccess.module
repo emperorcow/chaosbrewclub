@@ -1,0 +1,48 @@
+<?php
+
+function chaos_doorcodeaccess_permission() {
+	$permissions['edit door access code'] = array(
+		'title' => t('Edit the door access code'),
+		'description' => t('Allow users to edit the door code access node.'),
+	);
+	$permissions['view door access code'] = array(
+		'title' => t('View the door access code'),
+		'description' => t('Allow users to view the door code access node.'),
+	);
+
+	return $permissions;
+}
+
+function chaos_doorcodeaccess_node_access($node, $op, $account) {
+	if(! is_object($node)) {
+		return NODE_ACCESS_IGNORE;
+	}
+
+	if($node->nid === '11757') {
+		switch($op) {
+			case 'update':
+				if(user_access('edit door access code', $account)) {
+					return NODE_ACCESS_ALLOW;
+				}
+				break;
+			case 'view':
+				if(user_access('view door access code', $account)) {
+					return NODE_ACCESS_ALLOW;
+				}
+				break;
+		}
+		return NODE_ACCESS_DENY;
+	}
+}
+
+/*function chaos_doorcodeaccess_menu() {
+	$menu['brewhouse/code'] = array(
+		'title' => 'Door Code',
+		'menu_name' => 'main-menu',
+		'plid' => 672,
+		'page callback' => 'node_page_view',
+		'page arguments' => array(node_load(11757)),
+		'access arguments' => array('view door access code'),
+	);
+	return $menu;
+}*/

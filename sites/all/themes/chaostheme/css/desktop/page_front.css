@@ -1,0 +1,117 @@
+
+/* If we don't overide the img settings here, this f's up the main page */
+.view-front-page-slideshow img {
+	width: auto;
+	height: auto;
+	max-width: none;
+	max-height: none;
+	line-height: normal;
+}
+
+/* Lets format our caption */
+div.nivo-caption h2 {
+	font-size: 1.1em;
+}
+div.nivo-caption p {
+	font-size: .9em;
+}
+
+/* Also lets move it a bit so it looks better */
+div#block-views-front-page-slideshow-block .block-inner .block-content {
+	padding: 10px 5px;;
+}
+
+/* The default theme adds a 50px margin beneath the image.... */
+.theme-default .nivoSlider {
+	margin-bottom: 5px;
+}
+
+/* Title for all blocks */
+div.region-splitmain-left h2.block-title, 
+div.region-splitmain-right h2.block-title {
+	border-bottom: 1px dashed #462303;
+	border-top: 1px solid #462303;
+	padding: 3px 0;
+}
+
+
+/* Block to show recent forum posts */
+div.view-id-recent_forum_topics div.views-row, 
+div.view-display-id-upcoming_events_block div.views-row, 
+div.view-id-recent_forum_topics .more-link,
+div.view-display-id-upcoming_events_block .more-link {
+	position: relative;
+	padding: 3px 0;
+	border-bottom: 1px dashed #462303;
+	text-align: left;
+}
+div.view-id-recent_forum_topics div.views-row:after,
+div.view-display-id-upcoming_events_block div.views-row:after,
+div.view-id-Events.view-display-id-block_2 div.views-row:after {
+	clear: both;
+	content: "";
+	display: block;
+}
+div.views-row div.views-field.views-field-new-comments {
+	padding: 0;
+	position: absolute;
+	bottom: 5px;
+	right: 3px;
+	height: auto;
+}
+div.views-row div.views-field.views-field-new-comments a {
+	color: #ff0000;
+	font-family: "Arial";
+	font-size: .95em;
+}
+div.views-row div.views-field {
+	float: left;
+	height: 36px;
+}
+div.view-id-recent_forum_topics div.views-row div span,
+div.view-display-id-upcoming_events_block  div.views-row div span {
+	overflow: hidden;
+	display: block;
+}
+div.view-id-recent_forum_topics div.views-row div span.forum {
+	font-style: italic;	
+}
+div.view-id-recent_forum_topics div.views-row div.views-field-php {
+	padding-top: 4px;
+	padding-left: 3px;
+}
+div.view-id-recent_forum_topics div.views-row div.views-field-picture-1,
+div.view-display-id-upcoming_events_block div.views-row div.views-field-logo {
+	text-align: center;
+	padding-top: 6px;
+}
+div.view-id-recent_forum_topics div.views-row div.views-field-title,
+div.view-display-id-upcoming_events_block  div.views-row div.views-field-nothing {
+	padding-left: 5px;
+	max-width: 255px;
+}
+
+section#block-views-events-block-2 {
+	margin-bottom: 3px;
+}
+div.view-id-Events.view-display-id-block_2 div.views-row {
+	padding: 3px;
+}
+div.view-id-Events.view-display-id-block_2 div.views-row > * {
+	float: left;
+}
+div.view-id-Events.view-display-id-block_2 div.header {
+	width: 235px;
+}
+div.view-id-Events.view-display-id-block_2 img {
+	padding-right: 4px;
+}
+div.view-id-Events.view-display-id-block_2 span.title {
+	color: #79210B;
+	font-weight: 700;
+	font-size: 1.4em;
+}
+div.view-id-Events.view-display-id-block_2 p {
+	color: #7C4D17;
+	padding-bottom: 2px;
+}

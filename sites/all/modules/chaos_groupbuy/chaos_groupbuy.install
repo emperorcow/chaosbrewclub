@@ -1,0 +1,130 @@
+<?php
+
+function chaos_groupbuy_schema() {
+	$schema = array();
+
+	$schema['chaos_groupbuys'] = array(
+		'description' => 'Table for CHAOS Group Buy entity',
+		'fields' => array(
+			'gid' => array(
+				'description' => 'Primary key and unique ID',
+				'type' => 'serial',
+				'not null' => TRUE,
+			),
+			'start_date' => array(
+				'description' => 'Date that the group buy begins on',
+				'type' => 'int',
+				'not null' => FALSE,
+			),
+			'end_date' => array(
+				'description' => 'Date that the group buy ends on',
+				'type' => 'int',
+				'not null' => FALSE,
+			),
+			'name' => array(
+				'description' => 'Name of the group buy',
+				'type' => 'varchar',
+				'length' => '255',
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'pallet_count' => array(
+				'description' => 'The number of items ordered for pallet purposes.',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+			),
+			'pallet_size' => array(
+				'description' => 'How many items are allowed per pallet.',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+			),
+			'description' => array(
+				'description' => 'Description of the group buy',
+				'type' => 'text',
+				'not null' => FALSE,
+			),
+			'fee_name' => array(
+				'description' => 'Description of the fee to show to users',
+				'type' => 'varchar',
+				'length' => '255',
+				'not null' => FALSE,
+				'default' => '',
+			),
+			'fee_amount' => array(
+				'description' => 'Percentage amount of fee to add to users',
+				'type' => 'float',
+				'not null' => FALSE,
+				'default' => 0,
+			),
+			'created' => array(
+				'description' => 'Created timestamp',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => FALSE,
+			),
+			'changed' => array(
+				'description' => 'Changed timestamp',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => FALSE,
+			),
+		),
+		'primary key' => array('gid'),
+	);
+	$schema['chaos_groupbuy_purchases'] = array(
+		'description' => 'Table for ms_core orders included in each group buy',
+		'fields' => array(
+			'groupbuy_purchase_id' => array(
+				'description' => 'ID of the groupbuy purchase entity',
+				'type' => 'serial',
+				'not null' => TRUE,
+				'unsigned' => TRUE,
+			),
+			'gid' => array(
+				'description' => 'The ID of the groupbuy this was purchased under',
+				'type' => 'int',
+				'not null' => TRUE,
+				'unsigned' => TRUE,
+			),
+			'oid' => array(
+				'description' => 'The ID of the order',
+				'type' => 'int',
+				'not null' => TRUE,
+				'unsigned' => TRUE,
+			),
+			'uid' => array(
+				'description' => 'The ID of the purchasing user',
+				'type' => 'int',
+				'not null' => TRUE,
+				'unsigned' => TRUE,
+			),
+			'order_product_id' => array(
+				'description' => 'The ID of the order_product from ms core',
+				'type' => 'int',
+				'not null' => TRUE,
+				'unsigned' => TRUE,
+			),
+			'pallet' => array(
+				'description' => 'Pallet that this purchase has been assigned to',
+				'type' => 'int',
+				'not null' => TRUE,
+				'unsigned' => TRUE,
+			),
+		),
+		'primary key' => array('groupbuy_purchase_id'),
+	);
+
+	return $schema;
+}
+
+function chaos_groupbuy_uninstall() {
+	$all = ms_products_get_plans_list('chaos_groupbuy');
+	foreach($all as $sku => $name) {
+		$plan = ms_products_plan_load($sku);
+		ms_products_plan_delete($plan);
+	}
+}

@@ -1,0 +1,4 @@
+name = CHAOS Door Code Access
+description = Limit access to the door code node.
+core = 7.x
+package = CHAOS Brew Club

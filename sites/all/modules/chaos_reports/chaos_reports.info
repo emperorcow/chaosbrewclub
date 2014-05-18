@@ -1,0 +1,7 @@
+name = CHAOS Reports
+description = List of reports that are useful for people.
+package = CHAOS Brew Club
+core = 7.x
+dependencies[] = google_chart_tools
+dependencies[] = date
+

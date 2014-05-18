@@ -1,0 +1,7 @@
+name = CHAOS Event Calendar Modifications
+description = Makes some modifications to the events calendar to make things pretty.
+package = CHAOS Brew Club
+core = 7.x
+dependencies[] = views
+dependencies[] = date
+

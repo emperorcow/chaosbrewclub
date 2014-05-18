@@ -1,0 +1,15 @@
+<?php
+
+function chaos_eventcalendar_fullcalendar_classes_alter(&$classes, $entity) {
+	if($entity->type == 'event') {
+		$term = taxonomy_term_load($entity->field_event_type[$entity->language][0]['tid']);
+		$classes[] = 'event_'.strtolower($term->name);
+	}
+}
+
+function chaos_eventcalendar_preprocess_fullcalendar(&$variables) {
+	if($variables['view']->name == 'events_calendar') {
+		$path = drupal_get_path('module', 'chaos_eventcalendar');
+		$variables['element']['#attached']['css'][] = $path.'/chaos_eventcalendar_calendar.css';
+	}
+}

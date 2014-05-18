@@ -1,0 +1,27 @@
+body {
+	font-family: Arial, Helvetica, sans-serif;
+}
+h2 {
+	font-size: 1.2em;
+	text-decoration: underline;
+}
+h3 {
+	font-size: 1.1em;
+}
+div.view-hot-topics table {
+	border-collapse: collapse; 
+}
+div.view-hot-topics table td {
+	border: 1px black solid;
+	padding: 2px;
+	font-size: 0.9em;
+}
+div.view-hot-topics table td span {
+	font-size: 0.8em;
+}
+div.view-hot-topics table td a {
+	color: #79210B;
+}
+div.view-hot-topics table tr.even td {
+	background-color: #ccc;
+}

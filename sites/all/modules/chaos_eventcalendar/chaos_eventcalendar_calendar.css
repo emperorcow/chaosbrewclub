@@ -1,0 +1,40 @@
+.fc-event-default .fc-event-time, .fc-event-default a {
+	background-color: transparent; 
+	border-style: none;
+	display: block;
+}
+
+a.event .fc-event-skin {
+	border-style: solid;
+}
+
+a.event-event, a.event-event .fc-event-skin {
+	background-color: #00CC00;
+	border-color: #003D00;
+}
+a.event-gathering, a.event-gathering .fc-event-skin {
+	background-color: #fd8b12;
+	border-color: #98530B;
+}
+a.event-workshop, a.event-workshop .fc-event-skin {
+	background-color: #999999;
+	border-color: #333333;
+}
+a.event-meeting, a.event-meeting .fc-event-skin {
+	background-color: #33c8cc;
+	border-color: #145052;
+}
+a.event-event-brew-deadline, a.event-event-brew-deadline .fc-event-skin {
+	background-color: #cc3338;
+	border-color: #661A1C;
+}
+
+div.view-display-id-featured_events td {
+	text-align: center;
+}
+div.view-display-id-featured_events span.title {
+	font-weight: bold;
+	font-size: 1.1em;
+	display: block;
+	padding-bottom: 10px;
+}

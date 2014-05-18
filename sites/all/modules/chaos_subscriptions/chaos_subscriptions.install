@@ -1,0 +1,37 @@
+<?php
+
+function chaos_subscriptions_schema() {
+	$schema = array();
+
+	$schema['chaos_subscriptions_nonces'] = array(
+		'description' => 'Stores nonces used in validated SMTP replies to comments and PMs.',
+		'fields' => array (
+			'nonce' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'description' => 'Primary Key: Unique nonce.',
+			),
+			'type' => array(
+				'type' => 'varchar',
+				'length' => 10,
+				'not null' => TRUE,
+				'description' => "Type of entity that we're storing here.",
+			),
+			'id' => array(
+				'type' => 'int',
+				'not null' => TRUE,
+				'description' => "Entity that is tied to the nonce.",
+			),
+			'uid' => array(
+				'type' => 'int',
+				'not null' => TRUE,
+				'description' => "Notified users {users}.uid",
+			),
+		),
+		'primary key' => array('nonce', 'id'),
+	);
+
+	return $schema;
+}
+
