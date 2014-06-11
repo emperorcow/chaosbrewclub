@@ -7,3 +7,10 @@ function chaos_themeswitch_custom_theme() {
 		return 'touchm';
 	}
 }
+
+function chaos_themeswitch_init() {
+	// Don't let the browser think the front page is cacheable.
+	if(drupal_is_front_page()) {
+		drupal_add_http_header('cache-control', 'no-cache, no-store, must-revalidate');
+	}
+}
