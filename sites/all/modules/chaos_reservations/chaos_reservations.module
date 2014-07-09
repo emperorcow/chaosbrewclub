@@ -10,16 +10,28 @@ function chaos_reservations_help($path, $arg) { //{{{
 } //}}}
 
 function chaos_reservations_permission() { //{{{
-        $permissions['access brew house'] = array(
-                'title' => t('Create brewhouse reservation'),
-                'description' => t('Brew, bottle, transfer, etc.'),
-        );
-        $permissions['close brew house'] = array(
-                'title' => t('Close the Brewhouse'),
-                'description' => t('Disallow all brewhouse reservations (brewing, bottling, etc.)'),
-        );
+	$permissions['access brew house'] = array(
+		'title' => t('Create brewhouse reservation'),
+		'description' => t('Brew, bottle, transfer, etc.'),
+	);
+	$permissions['access brew house solo'] = array(
+		'title' => t('24/7 brewhouse access'),
+		'description' => t('People who have full access to the brewhouse.'),
+	);
+	$permissions['access brew tower'] = array(
+		'title' => t('Access the Tower of Power'),
+		'description' => t('Allow the ability to access the ToP'),
+	);
+	$permissions['access brew 3tier'] = array(
+		'title' => t('Access the Three Tier System'),
+		'description' => t('Allow the ability to access the 3 Tier System'),
+	);
+	$permissions['close brew house'] = array(
+		'title' => t('Close the Brewhouse'),
+		'description' => t('Disallow all brewhouse reservations (brewing, bottling, etc.)'),
+	);
 
-        return $permissions;
+	return $permissions;
 } //}}}
 
 function chaos_reservations_menu() { //{{{
@@ -60,57 +72,82 @@ function _chaos_reservations_get_bays() { //{{{
 			'selectable' => false,
 			'selected' => false,
 			'function' => 'close',
+			'access' => 'close brew house',
 		),
 		1 => array(
 			'name' => 'Bay 1',
-			'coords' => '102,8,190,125',
+			'coords' => '102,8,190,126',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
 			'function' => 'brew',
+			'access' => 'access brew house',
 		),
 		2 => array(
 			'name' => 'Bay 2',
-			'coords' => '196,8,283,125',
+			'coords' => '196,8,284,126',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
 			'function' => 'brew',
+			'access' => 'access brew house',
 		),
 		3 => array(
 			'name' => 'Bay 3',
-			'coords' => '290,8,377,125',
+			'coords' => '290,8,378,126',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
 			'function' => 'brew',
+			'access' => 'access brew house',
 		),
 		4 => array(
 			'name' => 'Bay 4',
-			'coords' => '385,8,472,125',
+			'coords' => '386,8,474,126',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
 			'function' => 'brew',
+			'access' => 'access brew house',
 		),
 		5 => array(
 			'name' => 'Bottling 1',
-			'coords' => '196,144,283,261',
+			'coords' => '407,141,495,259',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
 			'function' => 'bottling',
+			'access' => 'access brew house',
 		),
 		6 => array(
 			'name' => 'Bottling 2',
-			'coords' => '290,144,377,261',
+			'coords' => '502,141,590,259',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
 			'function' => 'bottling',
+			'access' => 'access brew house',
+		),
+		7 => array(
+			'name' => 'Tower of Power',
+			'coords' => '246,141,333,259',
+			'visible' => true,
+			'selectable' => user_access('access brew tower'),
+			'selected' => false,
+			'function' => 'brew',
+			'access' => 'access brew tower',
+		),
+		8 => array(
+			'name' => 'Three Tier System',
+			'coords' => '64,141,151,259',
+			'visible' => true,
+			//'selectable' => user_access('access brew 3tier'),
+			'selectable' => false,
+			'selected' => false,
+			'function' => 'brew',
+			'access' => 'access brew 3tier',
 		),
 	);
-
 } //}}}
 
 function _chaos_reservations_get_bay_function($id) { //{{{
@@ -160,12 +197,20 @@ function chaos_reservations_reservation_form($form, $form_state, $action, $id = 
 			$form['brew_bay']['close'] = array(
 				'#type' => 'checkbox',
 				'#title' => 'Disable Brewhouse reservations during time period.',
-				'#default_value' => isset($form_state['values']['close']) ? $form_state['values']['bay'] : false,
+				'#default_value' => isset($form_state['values']['close']) ? $form_state['values']['close'] : false,
 			);
 			$form['brew_bay']['close_text'] = array(
 				'#type' => 'textfield',
 				'#title' => t('Reason for closure'),
 				'#size' => 60,
+			);
+		}
+
+		if(!user_access('access brew house solo') && $action != 'edit') {
+			$form['brew_bay']['gethelp'] = array(
+				'#type' => 'checkbox',
+				'#title' => 'Please help me find a brewer or alchemist that can provide me access the brewhouse!',
+				'#default_value' => false,
 			);
 		}
 
@@ -267,13 +312,13 @@ function chaos_reservations_reservation_form_validate($form, $form_state) { //{{
 		drupal_add_js(array('chaos_reservations_map_default_visibility' => true), 'setting');
 
 		if(!user_access('access brew house')) {
-			form_set_error('reservation_time',t("I'm sorry, but you aren't a brewing level member.  Please signup for a <a href='/membership'>membership first."));
+			form_set_error('reservation_time',t("I'm sorry, but you aren't a brewing level member.  Please signup for a <a href='/membership'>membership</a> first."));
 		}
 
-		if(isset($form_state['values']['close']) || $form_state['values']['bay'] == 0) {
-			if(!user_access('close brew house')) {
-				form_set_error('reservation_time',t("You don't have the access to do that."));
-			}
+		if(!isset($form_state['values']['close']) && $form_state['values']['bay'] == 0) {
+			form_set_error('brew_bay', t("You didn't select a brew bay"));
+		} else if(isset($form_state['values']['close']) && !user_access('close brew house')) {
+			form_set_error('brew_bay',t("You don't have the access to close the brewhouse."));
 		}
 
 		$bays = _chaos_reservations_get_bays();
@@ -291,17 +336,23 @@ function chaos_reservations_reservation_form_validate($form, $form_state) { //{{
 
 
 		$bays = _chaos_reservations_get_available_bays($start, $end, $bays);
+		$bayid = $form_state['values']['bay'];
 		$nid = null;
 		if(isset($form_state['build_info']['args'][1])) {
 			$nid = $form_state['build_info']['args'][1];
 		}
-		if(!_chaos_reservations_check_bay($form_state['values']['bay'], $bays, $nid)) {
+		if(!user_access($bays[$bayid]['access'])) {
+			form_set_error('brew_bay', t('You don\'t have access to reserve !name.', array('!name' => $bays[$form_state['values']['bay']]['name'])));
+		}
+		if(!_chaos_reservations_check_bay($bayid, $bays, $nid)) {
 			form_set_error('brew_bay', t('!name is not available at that time.', array('!name' => $bays[$form_state['values']['bay']]['name'])));
 		}
 	}
 } //}}}
 
 function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
+	global $user;
+
 	if($form_state['values']['op'] == 'Cancel Reservation') {
 		node_delete($form_state['build_info']['args'][1]);
 		drupal_set_message($form_state['build_info']['args'][1] . ' deleted.');
@@ -329,6 +380,31 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 			$node->language = LANGUAGE_NONE;
 		}
 		
+		if($form_state['values']['gethelp'] == 1) {
+			$roleid = 30; //Membership Managers
+			$res = db_query("SELECT u.uid, u.name, u.mail, u.status 
+					FROM {users} AS u INNER JOIN {users_roles} AS ur ON u.uid = ur.uid 
+					WHERE ur.rid = :role AND u.status = 1", 
+					array(":role" => $roleid)
+				);
+
+		
+
+			while($u = $res->fetchAssoc()) {
+				$params = array(
+					'uid' => $user->uid,
+					'username' => $user->name,
+					'userlevel' => _chaos_reservations_get_user_level($user),
+					'usermail' => $user->mail,
+					'starttime' => $start->format('g:ia \o\n l jS F Y'),
+					'endtime' => $end->format('g:ia \o\n l jS F Y'),
+					'bay' => $form_state['values']['bay']['name'],
+				);
+
+				drupal_mail('chaos_reservations', 'gethelp', $u['mail'], user_preferred_language($u['mail']), $params);
+			}
+		}
+
 		if($form_state['values']['close'] == 1) {
 			$title = t('Brewhouse closed for @reason', array(
 					'@reason' => $form_state['values']['close_text']));
@@ -348,6 +424,36 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 		node_save($node);
 		drupal_set_message($title . ' saved.');
 		drupal_goto('brewhouse/reservations');
+	}
+} //}}}
+
+function chaos_reservations_mail($key, &$message, $params) { //{{{
+	global $base_url;
+
+	switch($key) {
+		case 'gethelp': 
+			$message['subject'] = t('@user has asked for help finding a brew buddy', array(
+						'@user' => $params['username'], 
+			));
+			$message['body'][] = t('
+@user has requested some help finding a brew buddy.
+Their reservation information is below:
+        User Level: @level
+        Start Time: @start
+        End Time: @end
+        Bay: @bay
+        Send PM: '.$base_url.'/messages/new/@uid
+        Send Email: @email
+			', array(
+				'@uid' => $params['uid'],
+				'@user' => $params['username'],
+				'@email' => $params['usermail'],
+				'@level' => $params['userlevel'],
+				'@start' => $params['starttime'],
+				'@end' => $params['endtime'],
+				'@bay' => $params['bay'],
+			));
+		break;
 	}
 } //}}}
 
@@ -484,20 +590,6 @@ function _chaos_reservations_check_bay($bayid, $bays, $nid) { //{{{
 	if($bay['selectable']) {
 		return true;
 	}
-
-
-	$allow_reservation = true; //Lets just check and see if the current reservation is the only one on this bay for that time period.  If so, great!  You can have it.  If not, too bad. 
-	for($i = 0; $i < count($bay['reservations']); $i++) {
-		if(isset($nid)) {
-			if($bay['reservations'][$i]['nid'] != $nid) {
-				$allow_reservation = false;
-			}
-		} else {
-			$allow_reservation = false;
-		}
-	}
-
-	return $allow_reservation;
 } //}}}
 
 function _chaos_reservations_get_available_bays($startTime, $endTime, $bays) { //{{{
@@ -536,35 +628,12 @@ function _chaos_reservations_lookup_used_bays($startTime, $endTime) { //{{{
 			 ON tbldate.entity_id = tblbay.entity_id 
 			JOIN {node} AS node
 			 ON tbldate.entity_id = node.nid
-		WHERE field_date_value BETWEEN :start1 AND :end1
-			OR field_date_value2 BETWEEN :start2 AND :end2
+		WHERE :end > field_date_value
+			AND field_date_value2 > :start
 		", array(
-			':start1' => $startTime->format(DATE_FORMAT_DATETIME), 
-			':end1' => $endTime->format(DATE_FORMAT_DATETIME),
-			':start2' => $startTime->format(DATE_FORMAT_DATETIME),
-			':end2' => $endTime->format(DATE_FORMAT_DATETIME),
+			':start' => $startTime->format(DATE_FORMAT_DATETIME), 
+			':end' => $endTime->format(DATE_FORMAT_DATETIME),
 		));
-
-	/*dpm(t("
-		SELECT 
-			node.nid AS nid,
-			node.uid AS uid,
-			tbldate.field_date_value AS startdate, 
-			tbldate.field_date_value2 AS enddate, 
-			tblbay.field_brew_bay_value AS bay 
-		FROM {field_revision_field_date} AS tbldate 
-			JOIN {field_revision_field_brew_bay} AS tblbay
-			 ON tbldate.entity_id = tblbay.entity_id 
-			JOIN {node} AS node
-			 ON tbldate.entity_id = node.nid
-		WHERE field_date_value BETWEEN !start1 AND !end1
-			OR field_date_value2 BETWEEN !start2 AND !end2
-		", array(
-			'!start1' => $startTime->format(DATE_FORMAT_DATETIME), 
-			'!end1' => $endTime->format(DATE_FORMAT_DATETIME),
-			'!start2' => $startTime->format(DATE_FORMAT_DATETIME),
-			'!end2' => $endTime->format(DATE_FORMAT_DATETIME),
-	)));*/
 
 	if($result) {
 		$tmpbays = array();
