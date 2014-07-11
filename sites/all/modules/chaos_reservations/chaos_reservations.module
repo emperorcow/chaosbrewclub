@@ -590,6 +590,17 @@ function _chaos_reservations_check_bay($bayid, $bays, $nid) { //{{{
 	if($bay['selectable']) {
 		return true;
 	}
+
+	for($i = 0; $i < count($bay['reservations']); $i++) {
+		if(isset($nid)) {
+			if($bay['reservations'][$i]['nid'] != $nid) {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+	return true;
 } //}}}
 
 function _chaos_reservations_get_available_bays($startTime, $endTime, $bays) { //{{{
