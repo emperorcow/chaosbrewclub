@@ -1,5 +1,8 @@
 <?php
 
+include_once 'chaos_membership.features.inc';
+
+
 function chaos_membership_form_alter(&$form, &$form_state, $form_id) {
 	switch($form_id) {
 		case 'user_login':
