@@ -1,5 +1,5 @@
 <?php
-
+include_once 'chaos_reservations.features.inc';
 
 function chaos_reservations_help($path, $arg) { //{{{
 	switch($path) {
@@ -160,7 +160,7 @@ function chaos_reservations_reservation_form($form, $form_state, $action, $id = 
 	$bays = _chaos_reservations_get_bays();
 	$form = _chaos_reservations_get_form_defaults($path);
 
-	if((!empty($form_state['values']['start']) && !empty($form_state['values']['end'])) || 
+	if((!empty($form_state['values']['start']) && !empty($form_state['values']['end'])) ||
 	  ($action == 'edit' && isset($id))) {
 		$start = '';
 		$end = '';
@@ -190,7 +190,7 @@ function chaos_reservations_reservation_form($form, $form_state, $action, $id = 
 		$end->setTimezone(new DateTimeZone(date_default_timezone()));
 		$form['reservation_time']['start']['#default_value'] = $start->format(DATE_FORMAT_DATETIME);
 		$form['reservation_time']['end']['#default_value'] = $end->format(DATE_FORMAT_DATETIME);
-		
+
 		$bays = _chaos_reservations_get_available_bays($start, $end, $bays);
 
 		if(user_access('close brew house')) {
@@ -215,7 +215,7 @@ function chaos_reservations_reservation_form($form, $form_state, $action, $id = 
 		}
 
 		$form['brew_bay']['baymap'] = array(
-			'#markup' => _chaos_reservations_generate_reservation_list($bays, $id) . 
+			'#markup' => _chaos_reservations_generate_reservation_list($bays, $id) .
 			             _chaos_reservations_generate_imagemap("brewhouse", "/$path/images", $bays),
 		);
 
@@ -229,7 +229,7 @@ function chaos_reservations_reservation_form($form, $form_state, $action, $id = 
 		_chaos_reservations_set_bay_js($bays);
 	}
 
-	return $form;	
+	return $form;
 } //}}}
 
 function _chaos_reservations_get_form_defaults($path) { //{{{
@@ -275,13 +275,13 @@ function _chaos_reservations_get_form_defaults($path) { //{{{
 	$form['brew_bay'] = array(
 		'#type' => 'fieldset',
 		'#title' => 'Brew Bay',
-		'#prefix' => '<div id="reservationdiv">', 
-		'#suffix' => '</div>', 
+		'#prefix' => '<div id="reservationdiv">',
+		'#suffix' => '</div>',
 		'#description' => 'Please select from the available bays if you will be brewing.  For non-brewing activities (transfering, bottling, etc.) please select one of the bottling bays.',
 		'#collapsable' => true,
 		'#collapsed' => true,
 	);
-	
+
 	$form['submit'] = array(
 		'#type' => 'submit',
 		'#value' => 'Finalize Reservation',
@@ -325,7 +325,7 @@ function chaos_reservations_reservation_form_validate($form, $form_state) { //{{
 		if(!isset($bays[$form_state['values']['bay']])) {
 			form_set_error('brew_bay', t('Unknown Brew Bay, please try again.'));
 		}
-	
+
 		$start = new DateObject($form_state['values']['start']);
 		$end = new DateObject($form_state['values']['end']);
 		if($end->difference($start, 'seconds', false) == 0){
@@ -361,12 +361,12 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 	if($form_state['values']['op'] == 'Finalize Reservation') {
 		$form_state['redirect'] = 'brewhouse/reservations';
 		$bays = _chaos_reservations_get_bays();
-	
+
 		$start = new DateObject($form_state['values']['start']);
 		$start->setTimezone(new DateTimeZone('UTC'));
 		$end = new DateObject($form_state['values']['end']);
 		$end->setTimezone(new DateTimeZone('UTC'));
-	
+
 		$node = new stdClass();
 		if($form_state['values']['close'] == 1) {
 			$form_state['values']['bay'] = 0;
@@ -379,16 +379,16 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 			node_object_prepare($node);
 			$node->language = LANGUAGE_NONE;
 		}
-		
+
 		if($form_state['values']['gethelp'] == 1) {
 			$roleid = 30; //Membership Managers
-			$res = db_query("SELECT u.uid, u.name, u.mail, u.status 
-					FROM {users} AS u INNER JOIN {users_roles} AS ur ON u.uid = ur.uid 
-					WHERE ur.rid = :role AND u.status = 1", 
+			$res = db_query("SELECT u.uid, u.name, u.mail, u.status
+					FROM {users} AS u INNER JOIN {users_roles} AS ur ON u.uid = ur.uid
+					WHERE ur.rid = :role AND u.status = 1",
 					array(":role" => $roleid)
 				);
 
-		
+
 
 			while($u = $res->fetchAssoc()) {
 				$params = array(
@@ -414,13 +414,13 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 					'@date' => _chaos_reservations_format_date_range($start, $end),
 			));
 		}
-	
+
 		$node->title = $title;
-	
+
 		$node->field_brew_bay[$node->language][0]['value'] = $form_state['values']['bay'];
 		$node->field_date[$node->language][0]['value'] = $start->format(DATE_FORMAT_DATETIME);
 		$node->field_date[$node->language][0]['value2'] = $end->format(DATE_FORMAT_DATETIME);
-	
+
 		node_save($node);
 		drupal_set_message($title . ' saved.');
 		drupal_goto('brewhouse/reservations');
@@ -431,9 +431,9 @@ function chaos_reservations_mail($key, &$message, $params) { //{{{
 	global $base_url;
 
 	switch($key) {
-		case 'gethelp': 
+		case 'gethelp':
 			$message['subject'] = t('@user has asked for help finding a brew buddy', array(
-						'@user' => $params['username'], 
+						'@user' => $params['username'],
 			));
 			$message['body'][] = t('
 @user has requested some help finding a brew buddy.
@@ -487,13 +487,13 @@ function _chaos_reservations_generate_reservation_list($bays, $nid = null) { //{
 		if(!empty($bays[$i]['reservations'])) {
 			$flag = true;
 			foreach($bays[$i]['reservations'] as $res) {
-				if(!empty($nid) && $nid == $res['nid']) 
-					continue; 
+				if(!empty($nid) && $nid == $res['nid'])
+					continue;
 
 				$user = user_load($res['uid']);
 				$time = _chaos_reservations_format_date_range($res['start'], $res['end']);
 				$tmp .= format_string("<li>!bay: <a href='/user/!uid'>@name</a> (<a href=/membership>@level</a>) - !time</li>", array(
-									'!bay' => $bays[$i]['name'], 
+									'!bay' => $bays[$i]['name'],
 									'!uid' => $user->uid,
 									'@name' => $user->name,
 									'@level' => _chaos_reservations_get_user_level($user),
@@ -547,7 +547,7 @@ function _chaos_reservations_format_date_range($startTime, $endTime) { //{{{
 } //}}}
 
 function _chaos_reservations_generate_imagemap($id, $imgsrc, $bays) { //{{{
-	$tmp = "<div id='reservationmapimg'><img src='{$imgsrc}/map-available.jpg' id='{$id}_img' usemap='#{$id}_map'>"; 
+	$tmp = "<div id='reservationmapimg'><img src='{$imgsrc}/map-available.jpg' id='{$id}_img' usemap='#{$id}_map'>";
 	$tmp .= _chaos_reservations_generate_unavailable_images($imgsrc, $bays);
 	$tmp .= "<map id='{$id}_map' name='{$id}_map'>";
 
@@ -604,7 +604,7 @@ function _chaos_reservations_check_bay($bayid, $bays, $nid) { //{{{
 } //}}}
 
 function _chaos_reservations_get_available_bays($startTime, $endTime, $bays) { //{{{
-	$used = _chaos_reservations_lookup_used_bays($startTime, $endTime); 
+	$used = _chaos_reservations_lookup_used_bays($startTime, $endTime);
 
 	if(isset($used[0])) {
 		for($i = 0; $i < count($bays); $i++) {
@@ -628,27 +628,27 @@ function _chaos_reservations_lookup_used_bays($startTime, $endTime) { //{{{
 	$endTime->setTimezone(new DateTimeZone('UTC'));
 
 	$result = db_query("
-		SELECT 
+		SELECT
 			node.nid AS nid,
 			node.uid AS uid,
-			tbldate.field_date_value AS startdate, 
-			tbldate.field_date_value2 AS enddate, 
-			tblbay.field_brew_bay_value AS bay 
-		FROM {field_revision_field_date} AS tbldate 
+			tbldate.field_date_value AS startdate,
+			tbldate.field_date_value2 AS enddate,
+			tblbay.field_brew_bay_value AS bay
+		FROM {field_revision_field_date} AS tbldate
 			JOIN {field_revision_field_brew_bay} AS tblbay
-			 ON tbldate.entity_id = tblbay.entity_id 
+			 ON tbldate.entity_id = tblbay.entity_id
 			JOIN {node} AS node
 			 ON tbldate.entity_id = node.nid
 		WHERE :end > field_date_value
 			AND field_date_value2 > :start
 		", array(
-			':start' => $startTime->format(DATE_FORMAT_DATETIME), 
+			':start' => $startTime->format(DATE_FORMAT_DATETIME),
 			':end' => $endTime->format(DATE_FORMAT_DATETIME),
 		));
 
 	if($result) {
 		$tmpbays = array();
-	
+
 		while($row = $result->fetchAssoc()) {
 			$tmpbays[$row['bay']][] = array(
 				'nid' => $row['nid'],

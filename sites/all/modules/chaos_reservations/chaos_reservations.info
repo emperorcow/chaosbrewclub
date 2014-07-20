@@ -1,7 +1,12 @@
 name = CHAOS Brewhouse Reservations
-description = Handles brewhouse reservations, including providing access to view the systems and create new ones. 
+description = Handles brewhouse reservations, including providing access to view the systems and create new ones.
 package = CHAOS Brew Club
 core = 7.x
 dependencies[] = views
 dependencies[] = date
-
+features[ctools][] = views:views_default:3.0
+features[features_api][] = api:2
+features[views_view][] = brewhouse_reservations
+features_exclude[dependencies][fullcalendar] = fullcalendar
+features_exclude[dependencies][views] = views
+features_exclude[dependencies][views_content_cache] = views_content_cache
