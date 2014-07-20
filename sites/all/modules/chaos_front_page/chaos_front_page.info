@@ -1,6 +1,5 @@
 name = CHAOS Front Page
 description = Tweaks for the home page
-package = CHAOS Brew Club
 core = 7.x
 package = Features
 dependencies[] = features
@@ -15,5 +14,5 @@ features[field_base][] = field_image
 features[field_instance][] = node-brewhouse_image-body
 features[field_instance][] = node-brewhouse_image-field_image
 features[node][] = brewhouse_image
-features[views_view][] = brewhouse_image_slider
+features[views_view][] = front_page_slideshow
 features_exclude[dependencies][ctools] = ctools
