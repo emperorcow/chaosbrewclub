@@ -171,7 +171,8 @@ function chaostheme_preprocess_author_pane(&$vars) {
 
 	// If we've got a membership to include, do so
 	if ($since > 0) {
-		$vars['membership'] = $membership_level_name . ' since ' . format_date($since, 'custom', 'j M Y');
+		$vars['membership_level'] = $membership_level_name;
+		$vars['member_since'] = format_date($since, 'custom', 'M j, Y');
 	}
 
 	// Hide the default "Joined" line
