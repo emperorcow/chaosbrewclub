@@ -159,21 +159,22 @@ function chaostheme_preprocess_author_pane(&$vars) {
 			if ($membership->status == 'active') {
 				// Check the start date
 				$since = $membership->start_date;
-
-				// Find the name of the membership
-				$membership_plan = ms_products_plan_load($membership->sku);
-				if ($membership_plan) {
-					$membership_level_name = $membership_plan->name;
-				}
 			}
 		}
 	}
 
-	// If we've got a membership to include, do so
-	if ($since > 0) {
-		$vars['membership_level'] = $membership_level_name;
-		$vars['member_since'] = format_date($since, 'custom', 'M j, Y');
+	// Determine membership level
+	$membership_level_name = _chaos_reservations_get_user_level($account);
+
+	// If they don't have an active membership, just use their join date
+	if (!($since > 0)) {
+		$membership_level_name = 'Web-only';
+		$since = $account->created;
 	}
+
+	// If we've got a membership to include, do so
+	$vars['membership_level'] = $membership_level_name;
+	$vars['member_since'] = format_date($since, 'custom', 'M j, Y');
 
 	// Hide the default "Joined" line
 	unset($vars['joined']);
