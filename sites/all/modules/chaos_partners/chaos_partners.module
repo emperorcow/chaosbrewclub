@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the CHAOS Partners feature.
+ */
+
+include_once 'chaos_partners.features.inc';
