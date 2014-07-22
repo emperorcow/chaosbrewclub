@@ -118,7 +118,7 @@
       <?php /* Membership */ ?>
       <?php if (!empty($membership_level)): ?>
         <div class="author-pane-line author-membership">
-          <span class="author-pane-label"><?php print $membership_level ?></span> <?php print t('since'); ?> <? print $member_since; ?>
+          <span class="author-pane-label"><?php print $membership_level ?></span>, <?php print t('member since'); ?> <? print $member_since; ?>
         </div>
       <?php endif; ?>
 
