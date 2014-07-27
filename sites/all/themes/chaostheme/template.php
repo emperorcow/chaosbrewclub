@@ -146,6 +146,48 @@ function _chaostheme_condense_html($html) {
 	return preg_replace($search, $replace, $html);
 }
 
+/**
+ * Implement template_preprocess_author_pane().
+ * Add membership level info to the author pane
+ */
+function chaostheme_preprocess_author_pane(&$vars) {
+	$account = $vars['account'];
+	// Check if this user has a membership
+	if (is_array($account->ms_memberships)) {
+		foreach ($account->ms_memberships as $membership) {
+			// Only look at the active membership
+			if ($membership->status == 'active') {
+				// Check the start date
+				$since = $membership->start_date;
+			}
+		}
+	}
+
+	// Determine membership level
+	$membership_level_name = _chaos_reservations_get_user_level($account);
+
+	// If they don't have an active membership, just use their join date
+	if (!($since > 0)) {
+		$membership_level_name = 'Web-only';
+		$since = $account->created;
+	}
+
+	// If we've got a membership to include, do so
+	$vars['membership_level'] = $membership_level_name;
+	$vars['member_since'] = format_date($since, 'custom', 'M j, Y');
+
+	// Hide the default "Joined" line
+	unset($vars['joined']);
+
+	// Use our template, not the one from advanced forum
+	if (($i = array_search('advanced_forum_author_pane', $vars['theme_hook_suggestions'])) !== FALSE) {
+		unset($vars['theme_hook_suggestions'][$i]);
+	}
+	// Re-set the theme name
+	$vars['theme_hook_suggestion'] = 'author-pane';
+}
+
+
 function chaostheme_preprocess_page(&$vars, $hook) {
 	if($vars["theme_hook_suggestions"][0] == "page__forum") {
 		$vars["forum_breadcrumb"] = _get_forum_breadcrumb();
