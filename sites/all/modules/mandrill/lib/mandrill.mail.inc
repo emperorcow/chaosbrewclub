@@ -106,23 +106,27 @@ class MandrillMailSystem implements MailSystemInterface {
     // arrays in $message['params']['attachments']. As many modules assume you
     // will be using Mime Mail to handle attachments, we need to parse this
     // array as well.
-    if (is_array($message['params'])) {
-      if (isset($message['params']['attachments']) && !empty($message['params']['attachments'])) {
-        foreach ($message['params']['attachments'] as $attachment) {
-          $attachment_path = drupal_realpath($attachment['uri']);
-          if (is_file($attachment_path)) {
-            $struct = $mailer->getAttachmentStruct($attachment_path);
-            // Allow for customised filenames.
-            if (!empty($attachment['filename'])) {
-              $struct['name'] = $attachment['filename'];
-            }
-            $attachments[] = $struct;
+
+    // Make sure the params are actually an array (jerks)
+    if (is_object($message['params'])) {
+      $message['params'] = (array)$message['params'];
+    }
+
+    if (isset($message['params']['attachments']) && !empty($message['params']['attachments'])) {
+      foreach ($message['params']['attachments'] as $attachment) {
+        $attachment_path = drupal_realpath($attachment['uri']);
+        if (is_file($attachment_path)) {
+          $struct = $mailer->getAttachmentStruct($attachment_path);
+          // Allow for customised filenames.
+          if (!empty($attachment['filename'])) {
+            $struct['name'] = $attachment['filename'];
           }
+          $attachments[] = $struct;
         }
-        // Remove the file objects from $message['params']['attachments'].
-        // (This prevents double-attaching in the drupal_alter hook below.)
-        unset($message['params']['attachments']);
       }
+      // Remove the file objects from $message['params']['attachments'].
+      // (This prevents double-attaching in the drupal_alter hook below.)
+      unset($message['params']['attachments']);
     }
 
     // Account for the plaintext parameter provided by the mimemail module.
