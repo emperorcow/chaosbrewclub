@@ -109,7 +109,7 @@ class MandrillMailSystem implements MailSystemInterface {
 
     // Make sure the params are actually an array (jerks)
     if (is_object($message['params'])) {
-      $message['params'] = (array)$message['params'];
+      $message['params'] = get_object_vars($message['params']);
     }
 
     if (isset($message['params']['attachments']) && !empty($message['params']['attachments'])) {
