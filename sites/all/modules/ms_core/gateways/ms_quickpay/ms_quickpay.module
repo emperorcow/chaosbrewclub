@@ -124,7 +124,7 @@ function ms_quickpay_menu() {
  */
 function ms_quickpay_cron() {
   // Process payments that need to be processed
-  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE gateway = :gateway AND status = :status AND next_payment <> :next_payment AND next_payment < :next_payment", array(':gateway' => 'ms_quickpay', ':status' => 'active', ':next_payment' => 0, ':next_payment' => REQUEST_TIME));
+  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE gateway = :gateway AND status = :status AND next_payment <> :zero AND next_payment < :next_payment", array(':gateway' => 'ms_quickpay', ':status' => 'active', ':zero' => 0, ':next_payment' => REQUEST_TIME));
 
   // Add a counter so that only a certain number of payments are processed each cron run
   $count = 0;
@@ -146,14 +146,13 @@ function ms_quickpay_cron() {
 
     if ($response['approved']) {
       ms_core_log('ms_quickpay', 'Processing Recurring Charge for Order #!num. Here are the details: @message',
-            array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
+        array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
       // Insert the rec_payment Payment to the database
       $payment = ms_core_new_payment($order->oid, 'ms_quickpay', 'rec_payment');
       $payment->transaction = $response['data']['transaction'];
       $payment->amount = $recurring_schedule->main_amount;
       $payment->currency = $order->currency;
       $payment->data = $response['data'];
-      $payment->recurring_schedule = $order->recurring_schedule;
       $payment->recurring_id = $subscription_id;
 
       // Update the address
@@ -165,19 +164,18 @@ function ms_quickpay_cron() {
       $payment->last_name = $order->last_name;
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       // Check if the recurring_schedule is done, send rec_eot
       if ($recurring_schedule->total_occurrences != 0 AND $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
         $payment->type = 'rec_eot';
         $payment->amount = 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
       }
-    }
-    else {
+    } else {
       // Log the error
       ms_core_log_error('ms_quickpay', 'Error Processing Charge: @message',
-          array('@message' => $response['message']));
+        array('@message' => $response['message']));
 
       // If the failed payments counter is greater than or equal to the allowed amount, cancel the order, send rec_cancel
       if ($recurring_schedule->failed_payments >= variable_get('ms_quickpay_retry_attempts', 3)) {
@@ -186,47 +184,23 @@ function ms_quickpay_cron() {
         $payment->transaction = drupal_get_token(serialize($order));
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
-
-        // Update the address
-        $payment->billing_address = array(
-          'street' => $payment_profile->street,
-          'city' => $payment_profile->city,
-          'state' => $payment_profile->state,
-          'zip' => $payment_profile->zip,
-          'country' => $payment_profile->country,
-          'phone' => $payment_profile->phone,
-        );
-
-        // Update the contact details
-        $payment->first_name = $payment_profile->first_name;
-        $payment->last_name = $payment_profile->last_name;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
-      }
-      else {
-        // Email the User with the error details and instruct them to update their card
-        if (variable_get('ms_quickpay_billing_error_body', '')) {
-          $vars = array(
-            'payment_profile' => $payment_profile,
-          );
-          drupal_mail('ms_quickpay', 'billing_error', $account->mail, language_default(), $vars);
-        }
-
+        ms_core_enter_payment($payment);
+      } else {
         // Mark the recurring_schedule next_payment date in 3 days
         db_update('ms_recurring_schedules')
           ->fields(array(
-          'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
-        ))
+            'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
+          ))
           ->condition('id', $recurring_schedule->id)
           ->execute();
 
         // Increment the Failed Payments counter
         db_update('ms_recurring_schedules')
           ->fields(array(
-          'failed_payments' => $recurring_schedule->failed_payments + 1,
-        ))
+            'failed_payments' => $recurring_schedule->failed_payments + 1,
+          ))
           ->condition('id', $recurring_schedule->id)
           ->execute();
       }
@@ -300,7 +274,7 @@ function ms_quickpay_admin() {
     '#type' => 'textfield',
     '#title' => t('Link page message'),
     '#default_value' => variable_get('ms_quickpay_hosted_link_message',
-       t('In order to complete the payment, continue to QuickPay to enter your credit card information.')),
+      t('In order to complete the payment, continue to QuickPay to enter your credit card information.')),
     '#description' => t('The message displayed on the page before sending the customer to QuickPays credit card form. Subject to translation.'),
   );
   $languages = array(
@@ -339,8 +313,10 @@ function ms_quickpay_admin() {
 
 /**
  * Validates that the request fields is formatted as expected by QuickPay.
- * @param $data Associative array of params.
- * @returns boolean TRUE if the data is valid.
+ * @param $data
+ *   Associative array of params.
+ * @returns boolean
+ *   TRUE if the data is valid.
  */
 function ms_quickpay_validate($data) {
   $fields = array(
@@ -368,22 +344,19 @@ function ms_quickpay_validate($data) {
       ms_core_log_error('ms_quickpay', '%field cannot be NULL',
         array('%field' => $field));
       return FALSE;
-    }
-    elseif ($fields[$field]) {
+    } elseif ($fields[$field]) {
       if (!preg_match($fields[$field], $value)) {
         ms_core_log_error('ms_quickpay', "%field didn't pass validation.",
           array('%field' => $field));
         return FALSE;
       }
-    }
-    elseif (preg_match('/^CUSTOM_/', $field)) {
+    } elseif (preg_match('/^CUSTOM_/', $field)) {
       if (!preg_match($fields['CUSTOM_'], $value)) {
         ms_core_log_error('ms_quickpay', "%field didn't pass validation.",
           array('%field' => $field));
         return FALSE;
       }
-    }
-    else {
+    } else {
       ms_core_log_error('ms_quickpay', 'Unknown %field.',
         array('%field' => $field));
       return FALSE;
@@ -403,6 +376,7 @@ function ms_quickpay_supported_cards() {
     $accepted_cards = array();
     $all_cards = ms_quickpay_all_cards();
     foreach ($accepted_cards_keys as $old_key) {
+      $key = "";
       foreach ($all_cards as $key => $card) {
         if ($card['old_key'] == $old_key) {
           $accepted_cards[$key] = $card;
@@ -427,8 +401,7 @@ function ms_quickpay_cards($list) {
   $all_cards_keys = array_keys($all_cards);
   if (in_array('creditcard', $list)) {
     $list = array_filter($all_cards_keys, '_ms_quickpay_cards_filter_creditcard');
-  }
-  elseif (in_array('3d-creditcard', $list)) {
+  } elseif (in_array('3d-creditcard', $list)) {
     $list = array_filter($all_cards_keys, '_ms_quickpay_cards_filter_3d_creditcard');
   }
 
@@ -442,8 +415,7 @@ function _ms_quickpay_cards_filter_creditcard($key) {
   // Filter out netbanks and edankort
   if (in_array($key, array('nordea-dk', 'danske-dk', 'edankort'))) {
     return FALSE;
-  }
-  // Filter out 3D Secure cards.
+  } // Filter out 3D Secure cards.
   elseif (_ms_quickpay_cards_filter_3d_creditcard($key)) {
     return FALSE;
   }
@@ -467,7 +439,7 @@ function ms_quickpay_all_cards() {
   static $cards;
   if (!$cards) {
     $cards = array();
-    $tmp =  "creditcard::Any creditcard, overrides all other cards selected below:
+    $tmp = "creditcard::Any creditcard, overrides all other cards selected below:
 3d-creditcard::Any 3D Secure creditcard, overrides other cards selected below:
 dankort:dan:Dankort:dan.jpg
 edankort:edan:eDankort:edan.jpg
@@ -563,8 +535,7 @@ function quickpay_authorize($carddata, $order, $amount, $autocapture = TRUE) {
   if (variable_get('ms_quickpay_test_mode', FALSE)) {
     $request_data['testmode'] = '1';
     $request_data['ordernumber'] .= "T";
-  }
-  else {
+  } else {
     $request_data['testmode'] = '0';
   }
 
@@ -573,8 +544,7 @@ function quickpay_authorize($carddata, $order, $amount, $autocapture = TRUE) {
 
 function quickpay_refund($txn, $amount) {
   $request_data = array('transaction' => $txn['transaction']);
-  list($request_data['amount'], $dummy) =
-    ms_quickpay_validate_amount($amount, $txn['currency']);
+  list($request_data['amount']) = ms_quickpay_validate_amount($amount, $txn['currency']);
   return ms_quickpay_request('refund', $request_data);
 }
 
@@ -597,29 +567,30 @@ function ms_quickpay_request($msg_type, $request_data) {
   $return = array();
 
   if (!is_array($request_data)) {
-    $request_data = (array) $request_data;
+    $request_data = (array)$request_data;
   }
 
   $message = array();
   // Order is important here.
   $md5fields =
     array(
-    'protocol' => NULL,
-    'msgtype' => NULL,
-    'merchant' => NULL,
-    'ordernumber' => NULL,
-    'amount' => NULL,
-    'currency' => NULL,
-    'autocapture' => NULL,
-    'cardnumber' => NULL,
-    'expirationdate' => NULL,
-    'cvd' => NULL,
-    'cardtypelock' => NULL,
-    'transaction' => NULL,
-    'description' => NULL,
-  );
+      'protocol' => NULL,
+      'msgtype' => NULL,
+      'merchant' => NULL,
+      'ordernumber' => NULL,
+      'amount' => NULL,
+      'currency' => NULL,
+      'autocapture' => NULL,
+      'cardnumber' => NULL,
+      'expirationdate' => NULL,
+      'cvd' => NULL,
+      'cardtypelock' => NULL,
+      'transaction' => NULL,
+      'description' => NULL,
+    );
 
   $merchant = variable_get('ms_quickpay_merchant', '');
+  $order = ms_core_order_load($request_data['ordernumber']);
   $secret = variable_get('ms_quickpay_secret', '');
   if (!$merchant || !$secret) {
     if (!$merchant) {
@@ -664,8 +635,7 @@ function ms_quickpay_request($msg_type, $request_data) {
     ms_core_log_error('ms_quickpay', "Transaction timed out or no response received.");
     $return['approved'] = FALSE;
     $return['message'] = t('Transaction timed out or no response received.');
-  }
-  else {
+  } else {
     $transaction = ms_quickpay_response($response->data);
     switch (ms_quickpay_result($transaction)) {
       case 'success': // Accepted
@@ -688,6 +658,7 @@ function ms_quickpay_request($msg_type, $request_data) {
             $return['approved'] = TRUE;
             $return['data'] = $transaction;
             break;
+
           case 'Cancelled':
           case 'Refunded':
             // These shouldn't show up here, but for safety's sake.
@@ -697,69 +668,71 @@ function ms_quickpay_request($msg_type, $request_data) {
             $return['message'] = t("Unexpected '@type' callback for order %order.",
               array('%order' => $order->oid, '@type' => $transaction['state']));
             $return['data'] = $transaction;
+            break;
+
           default:
             ms_core_log_error('ms_quickpay', 'Unknown state %state for order %order, transaction ignored.',
               array(
-              '%state' => $transaction['state'],
-              '%order' => $order->oid,
-              '%message' => $transaction['qpstatmsg'],
-            ));
+                '%state' => $transaction['state'],
+                '%order' => $order->oid,
+                '%message' => $transaction['qpstatmsg'],
+              ));
             $return['approved'] = FALSE;
             $return['message'] = t('Unknown state %state for order %order, transaction ignored.',
               array(
-              '%state' => $transaction['state'],
-              '%order' => $order->oid,
-              '%message' => $transaction['qpstatmsg'],
-            ));
+                '%state' => $transaction['state'],
+                '%order' => $order->oid,
+                '%message' => $transaction['qpstatmsg'],
+              ));
             $return['data'] = $transaction;
         }
         break;
       case 'failed': // Failed
         ms_core_log_error('ms_quickpay', 'Payment failed for order %order: %message.',
-                 array(
-          '%order' => $order->oid,
-          '%message' => $transaction['qpstatmsg'],
-        ));
+          array(
+            '%order' => $order->oid,
+            '%message' => $transaction['qpstatmsg'],
+          ));
         $return['approved'] = FALSE;
         $return['message'] = t('Payment failed for order %order: %message.',
-                 array(
-          '%order' => $order->oid,
-          '%message' => $transaction['qpstatmsg'],
-        ));
+          array(
+            '%order' => $order->oid,
+            '%message' => $transaction['qpstatmsg'],
+          ));
         $return['data'] = $transaction;
         break;
       case 'error': // Errors
         // All these are handled as internal error.
         ms_core_log_error('ms_quickpay', 'Transaction code %code (%message, order %order. Something might be wrong.',
-                   array(
-          '%code' => $transaction['qpstat'],
-          '%order' => $order->oid,
-          '%message' => $transaction['message'],
-        ));
+          array(
+            '%code' => $transaction['qpstat'],
+            '%order' => $order->oid,
+            '%message' => $transaction['message'],
+          ));
         $return['approved'] = FALSE;
         $return['message'] = t('Transaction code %code (%message, order %order. Something might be wrong.',
-                   array(
-          '%code' => $transaction['qpstat'],
-          '%order' => $order->oid,
-          '%message' => $transaction['message'],
-        ));
+          array(
+            '%code' => $transaction['qpstat'],
+            '%order' => $order->oid,
+            '%message' => $transaction['message'],
+          ));
         $return['data'] = $transaction;
         break;
       default:
         ms_core_log_error('ms_quickpay',
-                 'Unknown transaction code %code for order %order, transaction ignored.',
-                 array(
-          '%code' => $transaction['qpstat'],
-          '%order' => $order->oid,
-          '%message' => $transaction['qpstatmsg'],
-        ));
+          'Unknown transaction code %code for order %order, transaction ignored.',
+          array(
+            '%code' => $transaction['qpstat'],
+            '%order' => $order->oid,
+            '%message' => $transaction['qpstatmsg'],
+          ));
         $return['approved'] = FALSE;
         $return['message'] = t('Unknown transaction code %code for order %order, transaction ignored.',
-                 array(
-          '%code' => $transaction['qpstat'],
-          '%order' => $order->oid,
-          '%message' => $transaction['qpstatmsg'],
-        ));
+          array(
+            '%code' => $transaction['qpstat'],
+            '%order' => $order->oid,
+            '%message' => $transaction['qpstatmsg'],
+          ));
         $return['data'] = $transaction;
     }
   }
@@ -791,6 +764,7 @@ function ms_quickpay_response($response) {
   // Find elements en response and put them in an associative array
   $xpath = new DOMXPath($dom);
   $elements = $xpath->query('/response/*');
+  $i = 0;
   foreach ($elements as $cn) {
     // If the element has (real) children - this is the case for status->history and chstatus->entry
     if ($cn->childNodes->length > 1) {
@@ -798,8 +772,7 @@ function ms_quickpay_response($response) {
         $result[$cn->nodeName][intval($i)][$hn->nodeName] = $hn->nodeValue;
       }
       $i++;
-    }
-    else {
+    } else {
       $result[$cn->nodeName] = $cn->nodeValue;
     }
   }
@@ -828,8 +801,8 @@ function ms_quickpay_validate_amount($amount, $currency) {
     return array(FALSE, FALSE);
   }
   return array((function_exists('bcmul') ?
-                bcmul($amount, $multiplyer, 0) :
-                $amount * $multiplyer), $currency);
+    bcmul($amount, $multiplyer, 0) :
+    $amount * $multiplyer), $currency);
 }
 
 /**
@@ -873,8 +846,8 @@ function ms_quickpay_reverse_currency($amount, $currency) {
     return array(FALSE, FALSE);
   }
   return array((function_exists('bcdiv') ?
-                bcdiv($amount, $multiplyer, 2) :
-                $amount / $multiplyer), $currency);
+    bcdiv($amount, $multiplyer, 2) :
+    $amount / $multiplyer), $currency);
 }
 
 /**
@@ -888,11 +861,11 @@ function ms_quickpay_reverse_currency($amount, $currency) {
  * * cvd: card verification number
  */
 function ms_quickpay_carddata($carddata) {
-  $carddata = (array) $carddata;
+  $carddata = (array)$carddata;
   return array(
     'cardnumber' => $carddata['number'],
     'expirationdate' => sprintf('%02d%02d', $carddata['exp_year'],
-                                          $carddata['exp_month']),
+      $carddata['exp_month']),
     'cvd' => $carddata['cvd'],
   );
 }
@@ -978,12 +951,11 @@ function ms_quickpay_cancel_confirm_submit($form, &$form_state) {
   // Generate a Unique Transaction ID
   $payment->transaction = drupal_get_token(serialize($order));
   $payment->currency = $order->currency;
-  $payment->recurring_schedule = $order->recurring_schedule;
   $payment->billing_address = $order->billing_address;
   $payment->shipping_address = $order->shipping_address;
   $payment->recurring_id = $order->oid;
 
-  ms_core_enter_payment($payment, FALSE);
+  ms_core_enter_payment($payment);
 }
 
 /**
@@ -1016,7 +988,6 @@ function ms_quickpay_modify_confirm($form, &$form_state, $oid, $id) {
  */
 function ms_quickpay_modify_confirm_submit($form, &$form_state) {
   $approved = TRUE;
-  $amount = 0;
 
   // Load the order and products
   $order = ms_core_order_load($form['#ms_core_oid']);
@@ -1043,9 +1014,8 @@ function ms_quickpay_modify_confirm_submit($form, &$form_state) {
 
       if ($response['approved']) {
         ms_core_log('ms_quickpay', 'Processing Recurring Charge for Order #!num. Here are the details: @message',
-            array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
-      }
-      else {
+          array('!num' => $order->oid, '@message' => ms_core_print_r($response)));
+      } else {
         $approved = FALSE;
         ms_core_log_error('ms_quickpay', 'Error Processing Charge: @message',
           array('@message' => $response['message']));
@@ -1065,14 +1035,12 @@ function ms_quickpay_modify_confirm_submit($form, &$form_state) {
     $payment->amount = $amount;
     $payment->currency = $order->currency;
     $payment->data = array('new_product' => $new_product);
-    $payment->recurring_schedule = $new_product->recurring_schedule;
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
     $payment->recurring_id = $order->oid;
 
-    ms_core_enter_payment($payment, FALSE);
-  }
-  else {
+    ms_core_enter_payment($payment);
+  } else {
     drupal_set_message(t('There was an error processing your payment. Please update your billing information and try again.'));
     $form_state['redirect'] = 'user/' . $account->uid;
   }
@@ -1089,8 +1057,6 @@ function ms_quickpay_checkout() {
   // Stop the caching
   $GLOBALS['conf']['cache'] = FALSE;
 
-  global $user;
-
   if (!$order = ms_core_load_session_order()) {
     // Error
     return t('There was an error with the checkout');
@@ -1104,8 +1070,7 @@ function ms_quickpay_checkout() {
   // Get the Payment Form
   if ($order->order_type == 'recurring') {
     $msg_type = 'subscribe';
-  }
-  else {
+  } else {
     $msg_type = 'authorize';
   }
 
@@ -1165,8 +1130,7 @@ function ms_quickpay_checkout_form($form, &$form_state, $order, $msg_type) {
     if ($order->recurring_schedule['trial_length'] AND !$order->recurring_schedule['trial_amount']) {
       // If there is a free trial, then set the amount to 0 and set the Token mode to store_only
       $order_amount = 0.00;
-    }
-    else {
+    } else {
       // Otherwise, set the amount to the trial amount if applicable
       $order_amount = ($order->recurring_schedule['trial_length']) ? $order->recurring_schedule['trial_amount'] : $order->recurring_schedule['main_amount'];
     }
@@ -1190,8 +1154,7 @@ function ms_quickpay_checkout_form($form, &$form_state, $order, $msg_type) {
   if (variable_get('ms_quickpay_test_mode', FALSE)) {
     $data['testmode'] = '1';
     $data['ordernumber'] .= "T";
-  }
-  else {
+  } else {
     $data['testmode'] = '0';
   }
 
@@ -1202,11 +1165,9 @@ function ms_quickpay_checkout_form($form, &$form_state, $order, $msg_type) {
   $cards = ms_quickpay_supported_cards();
   if (!empty($cards['creditcard'])) {
     $cards = array('creditcard' => '');
-  }
-  elseif (!empty($cards['3d-creditcard'])) {
+  } elseif (!empty($cards['3d-creditcard'])) {
     $cards = array('3d-creditcard' => '');
-  }
-  else {
+  } else {
     unset($cards['ikano']); // Aren't supported in cardtypelock.
   }
   $data['cardtypelock'] = join(',', array_keys($cards));
@@ -1232,10 +1193,10 @@ function ms_quickpay_checkout_form($form, &$form_state, $order, $msg_type) {
 
   $form['submit'] =
     array(
-    '#type' => 'submit',
-    '#value' => t(variable_get('ms_quickpay_hosted_link_button',
-                                     'Continue to QuickPay')),
-  );
+      '#type' => 'submit',
+      '#value' => t(variable_get('ms_quickpay_hosted_link_button',
+        'Continue to QuickPay')),
+    );
 
   // The oddity of setting the return urls by JavaScript, ensures that
   // we're only using the JavaScript requiring popdown page if JavaScript is
@@ -1292,8 +1253,7 @@ function ms_quickpay_popdown($order_key, $status) {
   if ($status == 'success') {
     // Send to the success page
     $url = url('ms_quickpay/thank-you/' . $order->unique_key, array('absolute' => TRUE));
-  }
-  else {
+  } else {
     $url = url('ms_quickpay/canceled', array('absolute' => TRUE));
   }
 
@@ -1334,11 +1294,18 @@ function ms_quickpay_callback($unique_key) {
     // Insert the Payment to the order
     $payment = ms_core_new_payment($order->oid, 'ms_quickpay', 'cart');
     $payment->transaction = $data['transaction'];
-    $payment->amount = $order->amount;
+    $payment->amount = round($data['amount'] / 100, 2);
     $payment->currency = $data['currency'];
     $payment->recurring_id = $data['transaction'];
     $payment->data = $data;
-    $payment->recurring_schedule = $order->recurring_schedule;
+
+    // Check that the currency and amount match the order.
+    if (!ms_core_valid_payment($order, $payment->type, $payment->amount) || $payment->currency != $order->currency) {
+      drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+      ms_core_log_error('ms_quickpay', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order',
+        array('!order' => ms_core_print_r($order)));
+      return FALSE;
+    }
 
     // Update the address
     $payment->billing_address = $order->billing_address;
@@ -1359,9 +1326,8 @@ function ms_quickpay_callback($unique_key) {
             $payment->amount = 0;
 
             // Add the Signup Payment
-            ms_core_enter_payment($payment, FALSE);
-          }
-          else {
+            ms_core_enter_payment($payment);
+          } else {
             // Otherwise, set the amount to the trial amount if applicable, and charge it
             $order_amount = ($order->recurring_schedule['trial_length']) ? $order->recurring_schedule['trial_amount'] : $order->recurring_schedule['main_amount'];
 
@@ -1374,9 +1340,8 @@ function ms_quickpay_callback($unique_key) {
               $payment->amount = $order_amount;
 
               // Add the Signup Payment
-              ms_core_enter_payment($payment, FALSE);
-            }
-            else {
+              ms_core_enter_payment($payment);
+            } else {
               // Log the error
               ms_core_log_error('ms_quickpay', 'Error Processing Charge: @message',
                 array('@message' => $response['message']));
@@ -1390,16 +1355,14 @@ function ms_quickpay_callback($unique_key) {
         ms_core_enter_payment($payment);
         break;
     }
-  }
-  else {
+  } else {
     // The payment didn't pass validation, so we show an error message
     drupal_set_title(t('Error'));
 
-    ms_core_log_error('ms_quickpay', 'The payment did not pass validation. The message returned was: @message. Details: !details',
-      array('@message' => $valid_payment['message'], '!details' => ms_core_print_r($_GET)));
+    ms_core_log_error('ms_quickpay', 'The payment did not pass validation. Details: !details',
+      array('!details' => ms_core_print_r($_GET)));
 
-    return t('The payment did not pass validation. The message returned was: @message. The error has been logged. Please contact us for more help.',
-      array('@message' => $valid_payment['message']));
+    return t('The payment did not pass validation. The error has been logged. Please contact us for more help.');
   }
 }
 
@@ -1432,7 +1395,8 @@ function ms_quickpay_clean_txn($vars) {
     $md5_string .= $vars[$field];
   }
   if (md5($md5_string . variable_get('ms_quickpay_secret', '')) !=
-          $vars['md5check']) {
+    $vars['md5check']
+  ) {
     ms_core_log_error('ms_quickpay', 'Transaction callback md5 didn\'t verify.');
     drupal_access_denied();
   }
@@ -1535,16 +1499,16 @@ function ms_quickpay_thankyou_page() {
   $output = '';
   $ajax_img = base_path() . drupal_get_path('module', 'ms_core') . '/images/ajax-bar-loader.gif';
   $output .= "<div style='text-align:center;width:100%;'>"
-   . t('Your order is being processed. Please allow up to 2 minutes for this process to complete.')
-   . "</div>";
+    . t('Your order is being processed. Please allow up to 2 minutes for this process to complete.')
+    . "</div>";
   $output .= "<div style='text-align:center;width:100%;'>"
-   . t('Thank you for your patience.')
-   . "</div>";
+    . t('Thank you for your patience.')
+    . "</div>";
 
   $output .= "<div class='ajax_loader' style='margin: 15px 0 0;clear:both;width:100%;text-align:center;'><img src='$ajax_img' alt='Loading' /></div>";
   $output .= "<div class='ms_quickpay_landing_click_here'>"
     . t('If you have waited for over one minute, please !click.',
-       array('!click' => l(t('click here'), 'ms/thankyou')))
+      array('!click' => l(t('click here'), 'ms/thankyou')))
     . "</div>";
   return $output;
 }
@@ -1568,15 +1532,13 @@ function ms_quickpay_ipn_ajax_page($unique_key) {
       array('!key' => $unique_key));
     $data['result'] = 'error';
     $data['error'] = t("There was an error loading the order. Please contact a site administrator.");
-  }
-  else {
+  } else {
     // Check if the payment has been recorded yet
     if ($order->uid) {
       // The order has a user id and is ready to go
       $data['result'] = 'success';
       $data['status'] = 'Unable to determine status';
-    }
-    else {
+    } else {
       $data['result'] = 'failure';
     }
   }
@@ -1603,7 +1565,7 @@ function theme_ms_quickpay_cards($variables) {
   $cards = $variables['cards'];
   drupal_add_css(drupal_get_path('module', 'ms_quickpay') . '/quickpay.css');
   $output = "";
-  $i = 1;
+
   foreach ($cards as $card) {
     if ($card['image']) {
       $output .= "<img src='" . url(trim($card['image'])) . "' alt='" . $card['name'] . "' style='position: relative; top: 5px; margin-left: 5px;' />";
@@ -1685,8 +1647,7 @@ function ms_quickpay_qpstat_codes($code = NULL) {
   }
   if ($code) {
     return $codes[$code];
-  }
-  else {
+  } else {
     return $codes;
   }
 }

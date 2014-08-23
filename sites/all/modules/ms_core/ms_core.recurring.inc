@@ -63,14 +63,21 @@ function ms_core_get_billing_helper_url($order) {
  *
  * @param MsOrder $order
  *   The order object.
- * @param int $id
- *   The product id.
+ * @param int $new_product_id
+ *   The new product id to modify to.
+ * @param int $old_product_id
+ *   (Optional) The old product id to modify from. Only applies to multi_recurring
+ *   orders.
  *
  * @return string
  *   The url path for the modify order page.
  */
-function ms_core_get_modify_helper_url($order, $id) {
-  return 'ms/modify/' . $order->oid . '/' . $id;
+function ms_core_get_modify_helper_url($order, $new_product_id, $old_product_id = NULL) {
+  $url = 'ms/modify/' . $order->oid . '/' . $new_product_id;
+  if (!is_null($old_product_id)) {
+    $url .= '/' . $old_product_id;
+  }
+  return $url;
 }
 
 /**
@@ -78,12 +85,20 @@ function ms_core_get_modify_helper_url($order, $id) {
  *
  * @param MsOrder $order
  *   The order object.
+ * @param string $product_id
+ *   (Optional) The product id to modify. Only applies to multi_recurring orders.
  *
  * @return string
  *   The url path for the cancel page.
  */
-function ms_core_get_cancel_helper_url($order) {
-  return 'ms/cancel/' . $order->oid;
+function ms_core_get_cancel_helper_url($order, $product_id = NULL) {
+  $url = 'ms/cancel/' . $order->oid;
+
+  if (!is_null($product_id)) {
+    $url .= '/' . $product_id;
+  }
+
+  return $url;
 }
 
 /**
@@ -98,6 +113,10 @@ function ms_core_get_cancel_helper_url($order) {
 function ms_core_cancel_confirm($form, &$form_state, $oid) {
   $order = ms_core_order_load($oid);
   $form['#ms_core_oid'] = $order->oid;
+  $product_id = arg(3);
+  if (!empty($product_id)) {
+    $form['#ms_core_pid'] = $product_id;
+  }
   return confirm_form($form, t('Are you sure you want to cancel your order?'), '', t('This action cannot be undone.'), t('Confirm'));
 }
 
@@ -113,12 +132,15 @@ function ms_core_cancel_confirm_submit($form, &$form_state) {
   // Generate a Unique Transaction ID.
   $payment->transaction = ms_core_generate_transaction_id(10);
   $payment->currency = $order->currency;
-  $payment->recurring_schedule = $order->recurring_schedule;
   $payment->billing_address = $order->billing_address;
   $payment->shipping_address = $order->shipping_address;
   $payment->recurring_id = $order->oid;
 
-  ms_core_enter_payment($payment, FALSE);
+  if (!empty($form['#ms_core_pid'])) {
+    $payment->data['product_id'] = $form['#ms_core_pid'];
+  }
+
+  ms_core_enter_payment($payment);
 
   $form_state['redirect'] = '';
 }
@@ -129,7 +151,7 @@ function ms_core_cancel_confirm_submit($form, &$form_state) {
  * @param int $oid
  *   The order id.
  * @param int $id
- *   The product id.
+ *   The new product id.
  *
  * @ingroup forms
  * @see ms_core_modify_confirm_submit()
@@ -140,9 +162,14 @@ function ms_core_modify_confirm($form, &$form_state, $oid, $id) {
 
   // Show if there will be a charge.
   $details_text = t('Your order will be modified immediately. You will not be charged.');
-  if ($amount = ms_core_get_outstanding_modification_amount($new_product, $order)) {
+  if ($amount = ms_core_get_outstanding_modification_amount($new_product, $order, arg(4))) {
     $details_text = t("You will be charged @amount if you proceed.",
       array('@amount' => ms_core_format_money($amount, $order->currency)));
+  }
+
+  $product_id = arg(4);
+  if (!empty($product_id)) {
+    $form['#ms_core_pid'] = $product_id; // Store the id of the product in the order to modify.
   }
 
   $form['#ms_core_oid'] = $order->oid;
@@ -156,11 +183,9 @@ function ms_core_modify_confirm($form, &$form_state, $oid, $id) {
  */
 function ms_core_modify_confirm_submit($form, &$form_state) {
   $approved = TRUE;
-  $amount = 0;
 
   // Load the order and products.
   $order = ms_core_order_load($form['#ms_core_oid']);
-  $account = user_load($order->uid);
 
   $new_product = ms_core_load_module_product(ms_core_get_order_module($order), $form['#ms_core_id']);
 
@@ -171,13 +196,19 @@ function ms_core_modify_confirm_submit($form, &$form_state) {
   // Remove any coupons from the order.
   ms_core_remove_order_adjustments($order);
 
-  if ($amount = ms_core_get_outstanding_modification_amount($new_product, $order)) {
+  $product_id = !empty($form['#ms_core_id']) ? $form['#ms_core_id'] : NULL;
+
+  if ($amount = ms_core_get_outstanding_modification_amount($new_product, $order, $product_id)) {
     // Ask the gateway to charge the order.
     $approved = module_invoke($order->gateway, 'ms_core_modification_charge', $amount, $order);
   }
 
   if ($approved) {
+    $data = array();
     $data['new_product'] = $new_product;
+    if (!empty($product_id)) {
+      $data['product_id'] = $product_id;
+    }
 
     $order = ms_core_add_data($order, $data);
 
@@ -188,13 +219,12 @@ function ms_core_modify_confirm_submit($form, &$form_state) {
     $payment->transaction = ms_core_generate_transaction_id(10);
     $payment->amount = $amount;
     $payment->currency = $order->currency;
-    $payment->data = array('new_product' => $new_product);
-    $payment->recurring_schedule = $new_product->recurring_schedule;
+    $payment->data = $data;
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
     $payment->recurring_id = $order->oid;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     $form_state['redirect'] = '';
   }
@@ -206,7 +236,7 @@ function ms_core_modify_confirm_submit($form, &$form_state) {
  * @param int $oid
  *   The order id.
  * @param int $id
- *   The product id.
+ *   The new product id.
  *
  * @ingroup forms
  * @see ms_core_downgrade_confirm_submit()
@@ -217,6 +247,11 @@ function ms_core_downgrade_confirm($form, &$form_state, $oid, $id) {
 
   $details_text = t("When your current plan expires, it will be changed to @new_prod.",
     array('@new_prod' => $new_product->name));
+
+  $product_id = arg(4);
+  if (!empty($product_id)) {
+    $form['#ms_core_pid'] = $product_id; // Store the id of the product in the order to modify.
+  }
 
   $form['#ms_core_oid'] = $order->oid;
   $form['#ms_core_id'] = $id;
@@ -230,7 +265,6 @@ function ms_core_downgrade_confirm($form, &$form_state, $oid, $id) {
 function ms_core_downgrade_confirm_submit($form, &$form_state) {
   // Load the order and products.
   $order = ms_core_order_load($form['#ms_core_oid']);
-  $account = user_load($order->uid);
   $new_product = ms_core_load_module_product(ms_core_get_order_module($order), $form['#ms_core_id']);
 
   // Remove trial periods if any from modifications.
@@ -240,18 +274,26 @@ function ms_core_downgrade_confirm_submit($form, &$form_state) {
   // Remove any coupons from the order.
   ms_core_remove_order_adjustments($order);
 
+  $product_id = !empty($form['#ms_core_id']) ? $form['#ms_core_id'] : NULL;
+
+  $data = array();
   $data['new_product'] = $new_product;
+  if (!empty($product_id)) {
+    $data['product_id'] = $product_id;
+  }
 
   $order = ms_core_add_data($order, $data);
 
   $payment = ms_core_new_payment($order->oid, $order->gateway, 'rec_downgrade', 0, $order->currency);
-  ms_core_enter_payment($payment, FALSE);
+  $payment->data = $data;
+  ms_core_enter_payment($payment);
 
+  // @todo - This might not be needed anymore because of multi-recurring. We should change everything that uses the order's recurring schedule to use the first product's recurring schedule instead, right?
   $order = ms_core_set_recurring_schedule($order, $new_product->recurring_schedule);
 
   // Create a recurring schedule if one doesn't exist.
-  $recurring_schedule = ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule);
-  $recurring_schedule = (object) array_merge((array) $recurring_schedule, $new_product->recurring_schedule);
+  $recurring_schedule = ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule, REQUEST_TIME, $product_id);
+  $recurring_schedule = (object)array_merge((array)$recurring_schedule, $new_product->recurring_schedule);
   $recurring_schedule->modified = REQUEST_TIME;
   $recurring_schedule->status = 'pending_downgrade';
   ms_core_update_recurring_schedule($recurring_schedule);
@@ -269,20 +311,28 @@ function ms_core_downgrade_confirm_submit($form, &$form_state) {
  *   The new product.
  * @param MsOrder $order
  *   The order object.
+ * @param string $product_id
+ *   (Optional) The product id. Only applies to multi_recurring orders.
  *
  * @return float
  *   The amount that should be charged in order to proceed with the
  *   modification.
  */
-function ms_core_get_outstanding_modification_amount($new_product, $order) {
+function ms_core_get_outstanding_modification_amount($new_product, $order, $product_id = NULL) {
   if ($amount = $new_product->recurring_schedule['main_amount']) {
-    if (isset($order->data['residual_credit']) AND $credit = $order->data['residual_credit']) {
-      $amount -= $credit;
+    if (!is_null($product_id)) {
+      if (isset($order->data['residual_credit_' . $product_id]) && ($credit = $order->data['residual_credit_' . $product_id])) {
+        $amount -= $credit;
+      }
+    } else {
+      if (isset($order->data['residual_credit']) && ($credit = $order->data['residual_credit'])) {
+        $amount -= $credit;
+      }
     }
 
     // Add in the adjustments as well, if there are new adjustments.
     if (!empty($new_product->data['adjustments'])) {
-      foreach ($new_product->data['adjustments'] as $adjustment_id => $adjustment_info) {
+      foreach ($new_product->data['adjustments'] as $adjustment_info) {
         if ($adjustment_info['active']) {
           $amount += $adjustment_info['value'];
         }
@@ -316,18 +366,25 @@ function ms_core_get_outstanding_modification_amount($new_product, $order) {
  * @param int $created
  *   (Optional) The timestamp that should be used for creation. Defaults to
  *   now.
+ * @param int $product_id
+ *   (Optional) The product id of the order product this recurring schedule is for.
  *
  * @return object
  *   The new recurring schedule object, or the old one if it already existed.
  */
-function ms_core_create_recurring_schedule($oid, $gateway, $module, $recurring_schedule, $created = NULL) {
+function ms_core_create_recurring_schedule($oid, $gateway, $module, $recurring_schedule, $created = NULL, $product_id = NULL) {
+  $order = ms_core_order_load($oid);
+
   // If a recurring schedule already exists, just return it.
-  if ($existing = ms_core_load_recurring_schedule($oid)) {
+  if ($existing = ms_core_load_recurring_schedule($oid, $product_id)) {
+    return $existing;
+  }
+  // We also check for an existing recurring schedule for the order without the product id, which is useful in cases
+  // of recurring type orders that are only supposed to have 1 recurring schedule record.
+  else if ($order->order_type == 'recurring' && $existing = ms_core_load_recurring_schedule($oid)) {
     return $existing;
   }
   $created = ($created) ? $created : REQUEST_TIME;
-
-  $order = ms_core_order_load($oid);
 
   $last_payment = $created;
 
@@ -336,18 +393,16 @@ function ms_core_create_recurring_schedule($oid, $gateway, $module, $recurring_s
   }
 
   // Calculate when the next payment should be.
-  if (!empty($order->recurring_schedule['fixed_date'])) {
-    $next_payment = ms_core_calculate_next_fixed_date($order->recurring_schedule['fixed_date_string'], $order->recurring_schedule['fixed_date_type'], $last_payment);
-  }
-  else {
+  if (!empty($recurring_schedule['fixed_date'])) {
+    $next_payment = ms_core_calculate_next_fixed_date($recurring_schedule['fixed_date_string'], $recurring_schedule['fixed_date_type'], $last_payment);
+  } else {
     if ($recurring_schedule['has_trial']) {
       // Add a payment for the trial to total_occurrences.
       if ($recurring_schedule['total_occurrences']) {
         $recurring_schedule['total_occurrences'] += 1;
       }
       $next_payment = ms_core_get_string_timestamp($recurring_schedule['trial_length'], $recurring_schedule['trial_unit'], $last_payment);
-    }
-    else {
+    } else {
       $next_payment = ms_core_get_string_timestamp($recurring_schedule['main_length'], $recurring_schedule['main_unit'], $last_payment);
     }
   }
@@ -364,8 +419,7 @@ function ms_core_create_recurring_schedule($oid, $gateway, $module, $recurring_s
     }
 
     $expiration = $created + $date;
-  }
-  else {
+  } else {
     $expiration = 0;
   }
 
@@ -380,12 +434,13 @@ function ms_core_create_recurring_schedule($oid, $gateway, $module, $recurring_s
     'created' => $created,
     'expiration' => $expiration,
     'modified' => $created,
+    'pid' => $product_id,
   );
 
   // Insert the recurring schedule.
   drupal_write_record('ms_recurring_schedules', $recurring_schedule);
 
-  return (object) $recurring_schedule;
+  return (object)$recurring_schedule;
 }
 
 /**
@@ -421,29 +476,38 @@ function ms_core_calculate_expiration_date($recurring_schedule) {
  *   The order object, passed by reference.
  * @param int $last_payment
  *   The timestamp of the last payment.
+ * @param int $product_id
+ *   (Optional) The product id.
  *
  * @return
  *   The timestamp of the next payment. If the recurring schedule has a trial
  *   period, then the total_occurrences is incremented by one if it is not
  *   unlimited.
  */
-function ms_core_calculate_next_payment_date(&$order, $last_payment) {
-  if (!empty($order->recurring_schedule['fixed_date'])) {
-    return ms_core_calculate_next_fixed_date($order->recurring_schedule['fixed_date_string'], $order->recurring_schedule['fixed_date_type'], $last_payment);
+function ms_core_calculate_next_payment_date(&$order, $last_payment, $product_id = NULL) {
+  $recurring_schedule = $order->recurring_schedule;
+  if ($product_id) {
+    foreach ($order->products as $product) {
+      if ($product_id == $product->order_product_id) {
+        $recurring_schedule = $product->recurring_schedule;
+      }
+    }
   }
-  else {
+
+  if (!empty($recurring_schedule['fixed_date'])) {
+    return ms_core_calculate_next_fixed_date($recurring_schedule['fixed_date_string'], $recurring_schedule['fixed_date_type'], $last_payment);
+  } else {
     // If this is the first payment, and
     // there is a trial period that is not free, then the next payment is after
     // the trial period.
-    if (count($order->payments) == 1 && $order->recurring_schedule['has_trial']) {
+    if (count($order->payments) == 1 && $recurring_schedule['has_trial']) {
       // Add a payment for the trial to total_occurrences if needed.
-      if ($order->recurring_schedule['total_occurrences']) {
-        $order->recurring_schedule['total_occurrences'] += 1;
+      if ($recurring_schedule['total_occurrences']) {
+        $recurring_schedule['total_occurrences'] += 1;
       }
-      return ms_core_get_string_timestamp($order->recurring_schedule['trial_length'], $order->recurring_schedule['trial_unit'], $last_payment);
-    }
-    else {
-      return !empty($order->recurring_schedule['main_length']) ? ms_core_get_string_timestamp($order->recurring_schedule['main_length'], $order->recurring_schedule['main_unit'], $last_payment) : 0;
+      return ms_core_get_string_timestamp($recurring_schedule['trial_length'], $recurring_schedule['trial_unit'], $last_payment);
+    } else {
+      return !empty($recurring_schedule['main_length']) ? ms_core_get_string_timestamp($recurring_schedule['main_length'], $recurring_schedule['main_unit'], $last_payment) : 0;
     }
   }
 }
@@ -463,12 +527,24 @@ function ms_core_update_recurring_schedule($recurring_schedule) {
  *
  * @param int $oid
  *   The order id.
+ * @param int $product_id
+ *   (Optional) The product id if applicable.
  *
  * @return object
  *   The recurring schedule object.
  */
-function ms_core_load_recurring_schedule($oid) {
-  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE oid = :oid", array(':oid' => $oid));
+function ms_core_load_recurring_schedule($oid, $product_id = NULL, $active = TRUE) {
+  $query = db_select('ms_recurring_schedules', 'rs')
+    ->fields('rs')
+    ->condition('oid', $oid);
+  if (!is_null($product_id)) {
+    $query->condition('pid', $product_id);
+  }
+  if ($active) {
+    $query->condition('status', 'active');
+  }
+  $result = $query->execute();
+
   foreach ($result as $recurring_schedule) {
     return $recurring_schedule;
   }
@@ -482,19 +558,21 @@ function ms_core_load_recurring_schedule($oid) {
  *   The order id.
  * @param int $time
  *   (Optional) The time used to calculate the next payment. Defaults to now.
+ * @param int $product_id
+ *   (Optional) The product id the payment was for. Defaults to NULL.
  */
-function ms_core_increment_recurring_schedule($oid, $time = NULL) {
-  $time = ($time) ? $time : REQUEST_TIME;
+function ms_core_increment_recurring_schedule($oid, $time = NULL, $product_id = NULL) {
+  $time = !empty($time) ? $time : REQUEST_TIME;
 
   $order = ms_core_order_load($oid);
   // Attempt to load the recurring schedule. If not found, attempt to create one.
-  if (!$recurring_schedule = ms_core_load_recurring_schedule($oid)) {
-    ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule);
-    $recurring_schedule = ms_core_load_recurring_schedule($oid);
+  if (!$recurring_schedule = ms_core_load_recurring_schedule($oid, $product_id)) {
+    ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule, REQUEST_TIME, $product_id);
+    $recurring_schedule = ms_core_load_recurring_schedule($oid, $product_id);
   }
   if ($recurring_schedule) {
     // Calculate the next payment date.
-    $next_payment = ms_core_calculate_next_payment_date($order, $time);
+    $next_payment = ms_core_calculate_next_payment_date($order, $time, $product_id);
 
     // Handle Failed Payments
     if ($recurring_schedule->failed_payments) {
@@ -513,32 +591,24 @@ function ms_core_increment_recurring_schedule($oid, $time = NULL) {
       // Clear the failed payments counter.
       db_update('ms_recurring_schedules')
         ->fields(array(
-        'failed_payments' => $failed_payments,
-      ))
+          'failed_payments' => $failed_payments,
+        ))
         ->condition('id', $recurring_schedule->id)
         ->execute();
     }
 
     // Update into Database.
-    $result = db_update('ms_recurring_schedules')
+    db_update('ms_recurring_schedules')
       ->fields(array(
-      'current_payments' => $recurring_schedule->current_payments + 1,
-      'next_payment' => $next_payment,
-    ))
-      ->condition('oid', $oid)
-      ->execute();
-
-    // Reset the notified flag.
-    $result = db_update('ms_recurring_schedules')
-      ->fields(array(
-      'notified' => 0,
-    ))
+        'current_payments' => $recurring_schedule->current_payments + 1,
+        'next_payment' => $next_payment,
+        'notified' => 0,
+      ))
       ->condition('id', $recurring_schedule->id)
       ->execute();
 
     return $next_payment;
-  }
-  else {
+  } else {
     ms_core_log_error('ms_core', 'Unable to load the recurring schedule for a rec_payment increment. Order #: !order',
       array('!order' => $oid));
     return FALSE;
@@ -554,12 +624,11 @@ function ms_core_increment_recurring_schedule($oid, $time = NULL) {
  *   (Optional) The date to use for the expiration date calculation. Defaults
  *   to now.
  */
-function ms_core_cancel_recurring_schedule($oid, $date = NULL) {
-  $date = ($date) ? $date : REQUEST_TIME;
+function ms_core_cancel_recurring_schedule($oid, $product_id = NULL) {
   $expiration = 0;
 
   // Load the recurring schedule.
-  if ($recurring_schedule = ms_core_load_recurring_schedule($oid)) {
+  if ($recurring_schedule = ms_core_load_recurring_schedule($oid, $product_id)) {
     // Calculate the Expiration Date.
     $now = REQUEST_TIME;
     $trial1 = 0;
@@ -579,23 +648,21 @@ function ms_core_cancel_recurring_schedule($oid, $date = NULL) {
 
     if (($recurring_schedule->created + $trial1) > $now) {
       $expiration = $recurring_schedule->created + $trial1;
-    }
-    elseif (($recurring_schedule->created + $trial1 + $regular_time) > $now) {
+    } elseif (($recurring_schedule->created + $trial1 + $regular_time) > $now) {
       $expiration = $recurring_schedule->created + $trial1 + $regular_time;
-    }
-    else {
+    } else {
       $expiration = $now;
     }
 
     // Update into Database.
-    $result = db_update('ms_recurring_schedules')
+    $query = db_update('ms_recurring_schedules')
       ->fields(array(
-      'total_occurrences' => $recurring_schedule->current_payments,
-      'expiration' => $expiration,
-      'status' => 'cancelled',
-    ))
-      ->condition('oid', $oid)
-      ->execute();
+        'total_occurrences' => $recurring_schedule->current_payments,
+        'expiration' => $expiration,
+        'status' => 'cancelled',
+      ))
+      ->condition('id', $recurring_schedule->id);
+    $query->execute();
   }
   return $expiration;
 }
@@ -608,17 +675,18 @@ function ms_core_cancel_recurring_schedule($oid, $date = NULL) {
  * @param string $status
  *   The new status.
  */
-function ms_core_change_recurring_schedule_status($oid, $status) {
-  // Load the recurring schedule.
-  $recurring_schedule = ms_core_load_recurring_schedule($oid);
-
+function ms_core_change_recurring_schedule_status($oid, $status, $product_id = NULL) {
   // Update into Database.
-  $result = db_update('ms_recurring_schedules')
+  $query = db_update('ms_recurring_schedules')
     ->fields(array(
-    'status' => $status,
-  ))
-    ->condition('oid', $oid)
-    ->execute();
+      'status' => $status,
+    ))
+    ->condition('oid', $oid);
+
+  if (!empty($product_id)) {
+    $query->condition('pid', $product_id);
+  }
+  $result = $query->execute();
 
   return $result;
 }
@@ -630,6 +698,11 @@ function ms_core_change_recurring_schedule_status($oid, $status) {
  *   The order id.
  * @param int $expiration
  *   (Optional) The expiration timestamp. Defaults to 0 (no expiration).
+ * @param float $max
+ *   (Optional) The maximum credit that can be given. Defaults 0.
+ *
+ * @return
+ *   The credit that is given for an order.
  */
 function ms_core_calculate_credit($oid, $expiration = 0, $max = 0) {
   // Load the order.
@@ -666,26 +739,23 @@ function ms_core_calculate_credit($oid, $expiration = 0, $max = 0) {
     }
 
     $time_left = ($expiration) ? $expiration - REQUEST_TIME : 0;
-    $total_time = ($expiration) ? $expiration  - $last_payment_time : 0;
+    $total_time = ($expiration) ? $expiration - $last_payment_time : 0;
 
     // Change the values if it is recurring.
     if ($order->order_type == 'recurring') {
-      $recurring_schedule = ms_core_load_recurring_schedule($order->oid);
-      if ($recurring_schedule->next_payment) {
+      if (($recurring_schedule = ms_core_load_recurring_schedule($order->oid)) && $recurring_schedule->next_payment) {
         $time_left = $recurring_schedule->next_payment - REQUEST_TIME;
         $total_time = $recurring_schedule->next_payment - $last_payment_time;
       }
     }
     if ($total_time > 0) {
       $credit = ($time_left / $total_time) * $price;
-    }
-    else {
+    } else {
       $credit = $price;
     }
 
     return ($credit > 0) ? round($credit, 2) : 0;
-  }
-  else {
+  } else {
     return 0;
   }
 }
@@ -751,8 +821,7 @@ function ms_core_payment_profiles_load_by_user($uid, $module = '') {
   if ($module) {
     $result = db_query("SELECT * FROM {ms_core_payment_profiles} WHERE uid = :uid AND module = :module",
       array(':uid' => $uid, ':module' => $module));
-  }
-  else {
+  } else {
     $result = db_query("SELECT * FROM {ms_core_payment_profiles} WHERE uid = :uid",
       array(':uid' => $uid));
   }
@@ -807,7 +876,7 @@ function ms_core_payment_profile_delete($oid) {
 function ms_core_payment_profile_save($pp) {
   // Convert to object if it is an array.
   if (is_array($pp)) {
-    $pp = (object) $pp;
+    $pp = (object)$pp;
   }
 
   $pp->cc_num = ms_core_mask_cc($pp->cc_num);
@@ -815,8 +884,7 @@ function ms_core_payment_profile_save($pp) {
   if (isset($pp->id)) {
     // Update the record.
     drupal_write_record('ms_core_payment_profiles', $pp, 'id');
-  }
-  else {
+  } else {
     drupal_write_record('ms_core_payment_profiles', $pp);
   }
 
@@ -826,36 +894,68 @@ function ms_core_payment_profile_save($pp) {
 /**
  * Gets the last payment string for an order.
  *
- * @param object $order
- *   The order object to get the last payment string for.
+ * @param object $recurring_schedule
+ *   The recurring_schedule object to get the last payment string for.
  *
  * @return string
  *   The date and amount of the last payment, or 'None'.
  */
-function ms_core_get_last_payment_string(MsOrder $order) {
-  $lp = ms_core_get_last_payment($order);
+function ms_core_get_last_payment_string($recurring_schedule) {
+  $order = ms_core_order_load($recurring_schedule->oid);
+  $lp = ms_core_get_last_payment($order, TRUE, $recurring_schedule->pid);
   if (isset($lp->created)) {
     return format_date($lp->created, 'small') . " - " . ms_core_format_money($lp->amount, $lp->currency);
-  }
-  else {
+  } else {
     return t('None');
   }
 }
 
 /**
+ * Retrieves the recurring schedule for an order.
+ *
+ * @param int $oid
+ *   The order id.
+ * @param string $product_id
+ *   (Optional) The product id or sku.
+ * @param string $product_module
+ *   (Optional) The product module.
+ *
+ * @return
+ *   The recurring schedule, or FALSE if none found.
+ */
+function ms_core_get_recurring_schedule($oid, $product_id = NULL, $product_module = NULL) {
+  if (is_null($product_id)) {
+    return ms_core_load_recurring_schedule($oid);
+  } else {
+    $order = ms_core_order_load($oid);
+    if ($order) {
+      $order_product_id = NULL;
+      if ($order->order_type == 'multi_recurring') {
+        foreach ($order->products as $product) {
+          if ($product->id == $product_id && $product->module == $product_module) {
+            $order_product_id = $product->order_product_id;
+          }
+        }
+      }
+      return ms_core_load_recurring_schedule($order->oid, $order_product_id);
+    }
+  }
+  return FALSE;
+}
+
+/**
  * Gets the next payment string for an order.
  *
- * @param object $order
- *   The order object to get the next payment string for.
+ * @param object $recurring_schedule
+ *   The recurring_schedule object to get the next payment string for.
  *
  * @return string
  *   The date and amount of the next payment, or 'None'.
  */
-function ms_core_get_next_payment_string($order) {
-  if ($order AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid) AND in_array($recurring_schedule->status, array('active', 'pending_downgrade')) AND $recurring_schedule->next_payment > REQUEST_TIME) {
-    return ms_core_get_next_payment_date($order) . " - " . ms_core_get_next_payment_amount($order);
-  }
-  else {
+function ms_core_get_next_payment_string($recurring_schedule) {
+  if (in_array($recurring_schedule->status, array('active', 'pending_downgrade')) && $recurring_schedule->next_payment > REQUEST_TIME) {
+    return ms_core_get_next_payment_date($recurring_schedule) . " - " . ms_core_get_next_payment_amount($recurring_schedule);
+  } else {
     return t('None');
   }
 }
@@ -863,16 +963,16 @@ function ms_core_get_next_payment_string($order) {
 /**
  * Gets the next payment date.
  *
- * @param MsOrder $order
- *   The order object.
+ * @param object $recurring_schedule
+ *   The recurring_schedule object.
+ *
  * @return string
  *   The next payment date.
  */
-function ms_core_get_next_payment_date($order) {
-  if ($recurring_schedule = ms_core_load_recurring_schedule($order->oid) AND in_array($recurring_schedule->status, array('active', 'pending_downgrade')) AND $recurring_schedule->next_payment > time()) {
+function ms_core_get_next_payment_date($recurring_schedule) {
+  if (in_array($recurring_schedule->status, array('active', 'pending_downgrade')) && $recurring_schedule->next_payment > time()) {
     return format_date($recurring_schedule->next_payment, 'small');
-  }
-  else {
+  } else {
     return t('N/A');
   }
 }
@@ -880,18 +980,17 @@ function ms_core_get_next_payment_date($order) {
 /**
  * Gets the next payment amount.
  *
- * @param MsOrder $order
- *   The order object.
+ * @param object $recurring_schedule
+ *   The recurring_schedule object.
  *
  * @return string
  *   The next payment amount.
  */
-function ms_core_get_next_payment_amount($order) {
-  $recurring_schedule = ms_core_load_recurring_schedule($order->oid);
-  if ($recurring_schedule AND in_array($recurring_schedule->status, array('active', 'pending_downgrade')) AND $recurring_schedule->next_payment > time()) {
+function ms_core_get_next_payment_amount($recurring_schedule) {
+  if (in_array($recurring_schedule->status, array('active', 'pending_downgrade')) && $recurring_schedule->next_payment > time()) {
+    $order = ms_core_order_load($recurring_schedule->oid);
     return ms_core_format_money($recurring_schedule->main_amount, $order->currency);
-  }
-  else {
+  } else {
     return t('N/A');
   }
 }
@@ -907,11 +1006,11 @@ function ms_core_get_next_payment_amount($order) {
  * @ingroup forms
  */
 function ms_core_payment_profile_edit_form($form, &$form_state, $account, $id = NULL) {
+  $module = '';
   if ($id == 'new') {
     $module = arg(5);
     $payment_profile = FALSE;
-  }
-  else if ($payment_profile = ms_core_payment_profile_load($id)) {
+  } else if ($payment_profile = ms_core_payment_profile_load($id)) {
     $form['profile_id'] = array(
       '#type' => 'value',
       '#value' => $id,
@@ -959,7 +1058,7 @@ function ms_core_payment_profile_edit_form($form, &$form_state, $account, $id = 
     'diners' => 'Diners',
     'maestro' => 'Maestro',
   );
-  if ($cards = variable_get($module . '_allowed_cards', array()) AND is_array($cards) AND !empty($cards)) {
+  if (($cards = variable_get($module . '_allowed_cards', array())) && is_array($cards) && !empty($cards)) {
     $allowed_cards = array_intersect_key($allowed_cards, $cards);
   }
   $form['card_info']['cc_type'] = array(
@@ -977,7 +1076,7 @@ function ms_core_payment_profile_edit_form($form, &$form_state, $account, $id = 
     '#maxlength' => 20,
     '#description' => t("The Credit Card Number. You must enter the full number
       when changing any of the other information. Card on record: @card", array(
-        '@card' => ($payment_profile) ? $payment_profile->cc_num : t('N/A'))),
+      '@card' => ($payment_profile) ? $payment_profile->cc_num : t('N/A'))),
     '#required' => TRUE,
     '#default_value' => '',
   );
@@ -1121,7 +1220,9 @@ function ms_core_saved_method_checkout_form($form, &$form_state, $payment_profil
   // Stop the caching.
   $GLOBALS['conf']['cache'] = FALSE;
 
-  if (!$order = ms_core_load_session_order()) {
+  $order = ms_core_load_session_order();
+
+  if (!$order) {
     // The order wasn't loaded: Error.
     drupal_set_message(t('There was an error with the checkout'), 'error');
     drupal_not_found();

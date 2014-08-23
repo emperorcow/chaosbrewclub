@@ -25,7 +25,6 @@ class MsOrder
   public $currency;
   public $title = '';
   public $order_number = '';
-  public $secured = 1;
   public $recurring_schedule = array(
     'total_occurrences' => 0,
     'main_amount' => 0,
@@ -43,6 +42,7 @@ class MsOrder
     'first_name' => '',
     'last_name' => '',
     'street' => '',
+    'street2' => '',
     'city' => '',
     'state' => '',
     'zip' => '',
@@ -51,6 +51,7 @@ class MsOrder
     );
   public $billing_address = array(
     'street' => '',
+    'street2' => '',
     'city' => '',
     'state' => '',
     'zip' => '',
@@ -107,7 +108,6 @@ class MsOrder
     $this->amount = round($row->amount, 2);
     $this->total = $row->total;
     $this->currency = $row->currency;
-    $this->secured = $row->secured;
     $this->first_name = $row->first_name;
     $this->last_name = $row->last_name;
     $this->email_address = $row->email_address;
@@ -209,47 +209,48 @@ class MsOrder
    */
   function calculate_total() {
     // Set the price and total again.
-    $this->amount = ms_core_get_final_price($this);
+    $this->amount = 0.00;
     $this->total = ms_core_get_order_total($this);
 
-    if ($this->order_type == 'recurring') {
-      foreach ($this->products as $product) {
-        $this->recurring_schedule = $product->recurring_schedule;
-        if ($product->recurring_schedule['has_trial']) {
-          // Calculate the amount that should be paid for the initial payment
-          // from the trial_amount.
-          $this->recurring_schedule['trial_amount'] = round(ms_core_get_product_adjusted_price($product->recurring_schedule['trial_amount'], $this->adjustments, 'all'), 2);
-        }
-        else {
-          // Set the trial length to the same as the main length.
-          $this->recurring_schedule['trial_length'] = $this->recurring_schedule['main_length'];
-          $this->recurring_schedule['trial_unit'] = $this->recurring_schedule['main_unit'];
-          // Calculate the amount that should be paid for the initial payment
-          // from the main_amount.
-          $this->recurring_schedule['trial_amount'] = round(ms_core_get_product_adjusted_price($product->recurring_schedule['main_amount'], $this->adjustments, 'all'), 2);
-        }
-        $this->recurring_schedule['main_amount'] = round(ms_core_get_product_adjusted_price($product->recurring_schedule['main_amount'], $this->adjustments, 'recurring'), 2);
+    switch ($this->order_type) {
+      case 'multi_recurring':
+      case 'recurring':
+        foreach ($this->products as $product) {
+          $this->recurring_schedule = $product->recurring_schedule;
+          if ($product->recurring_schedule['has_trial']) {
+            // Calculate the amount that should be paid for the initial payment
+            // from the trial_amount.
+            $this->recurring_schedule['trial_amount'] = round(ms_core_get_product_adjusted_price($product->recurring_schedule['trial_amount'], $this->adjustments, 'all'), 2);
+          }
+          else {
+            // Set the trial length to the same as the main length.
+            $this->recurring_schedule['trial_length'] = $this->recurring_schedule['main_length'];
+            $this->recurring_schedule['trial_unit'] = $this->recurring_schedule['main_unit'];
+            // Calculate the amount that should be paid for the initial payment
+            // from the main_amount.
+            $this->recurring_schedule['trial_amount'] = round(ms_core_get_product_adjusted_price($product->recurring_schedule['main_amount'], $this->adjustments, 'all'), 2);
+          }
+          $this->recurring_schedule['main_amount'] = round(ms_core_get_product_adjusted_price($product->recurring_schedule['main_amount'], $this->adjustments, 'recurring'), 2);
 
-        // If the initial payment is the same as the regular payment, don't do
-        // a trial.
-        if ($this->recurring_schedule['main_amount'] == round($this->recurring_schedule['trial_amount'], 3)) {
-          $this->recurring_schedule['has_trial'] = FALSE;
-        }
-        else {
-          $this->recurring_schedule['has_trial'] = TRUE;
-        }
+          // If the initial payment is the same as the regular payment, don't do
+          // a trial.
+          if ($this->recurring_schedule['main_amount'] == round($this->recurring_schedule['trial_amount'], 3)) {
+            $this->recurring_schedule['has_trial'] = FALSE;
+          }
+          else {
+            $this->recurring_schedule['has_trial'] = TRUE;
+          }
 
-        // Set the order amount to be the initial payment amount.
-        $this->amount = round($this->recurring_schedule['trial_amount'], 2);
-
-        // We should only have 1 product in a recurring order, so break here.
+          // Set the order amount to be the initial payment amount.
+          $this->amount += round($this->recurring_schedule['trial_amount'], 2);
+        }
         break;
-      }
-    }
-    else {
-      // Just set the amount to what it should be for the initial payment
-      // (with all adjustments).
-      $this->amount = round(ms_core_get_final_price($this), 2);
+
+      case 'cart':
+        // Just set the amount to what it should be for the initial payment
+        // (with all adjustments).
+        $this->amount = round(ms_core_get_final_price($this), 2);
+        break;
     }
   }
 }
@@ -272,19 +273,9 @@ class MsPayment
   public $recurring_id = '';
   public $data = array();
 
-  public $recurring_schedule = array(
-    'total_occurrences' => 0,
-    'main_amount' => 0,
-    'main_length' => 0,
-    'main_unit' => '',
-    'has_trial' => FALSE,
-    'trial_amount' => 0,
-    'trial_length' => 0,
-    'trial_unit' => '',
-  );
-
   public $shipping_address = array(
     'street' => '',
+    'street2' => '',
     'city' => '',
     'state' => '',
     'zip' => '',
@@ -293,6 +284,7 @@ class MsPayment
   );
   public $billing_address = array(
     'street' => '',
+    'street2' => '',
     'city' => '',
     'state' => '',
     'zip' => '',
@@ -338,16 +330,6 @@ class MsPayment
     $this->currency = $row->currency;
     $this->created = $row->created;
     $this->modified = $row->modified;
-
-    $this->recurring_schedule = unserialize($row->recurring_schedule);
-
-    // Set the defaults.
-    if (!isset($this->recurring_schedule['trial_length'])) {$this->recurring_schedule['trial_length'] = '';}
-    if (!isset($this->recurring_schedule['trial_unit'])) {$this->recurring_schedule['trial_unit'] = '';}
-    if (!isset($this->recurring_schedule['trial_amount'])) {$this->recurring_schedule['trial_amount'] = '';}
-    if (!isset($this->recurring_schedule['main_length'])) {$this->recurring_schedule['main_length'] = '';}
-    if (!isset($this->recurring_schedule['main_unit'])) {$this->recurring_schedule['main_unit'] = '';}
-    if (!isset($this->recurring_schedule['main_amount'])) {$this->recurring_schedule['main_amount'] = '';}
 
     $this->data = unserialize($row->data);
 

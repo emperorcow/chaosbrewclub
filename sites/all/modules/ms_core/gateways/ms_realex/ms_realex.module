@@ -20,17 +20,14 @@ function ms_realex_ms_process_recurring_payment($recurring_schedule, $order) {
       $payment->amount = $recurring_schedule->main_amount;
       $payment->currency = $order->currency;
       $payment->data = array('response' => $result);
-      $payment->recurring_schedule = $order->recurring_schedule;
 
       return $payment;
-    }
-    else {
+    } else {
       // The payment failed. Log an error.
       ms_core_log_error('ms_realex', 'There was an error charging a payment profile. Error: @error Order: !order Profile: !profile',
         array('@error' => $result['message'], '!order' => ms_core_print_r($order), '!profile' => ms_core_print_r($payment_profile)));
     }
-  }
-  else {
+  } else {
     // There is no payment profile for this recurring order, log an error.
     ms_core_log_error('ms_realex', 'There was an error loading a payment profile
       to charge a recurring payment. Order: !order', array('!order' => ms_core_print_r($order)));
@@ -227,16 +224,15 @@ function ms_realex_payment_profile_edit_form_validate($form, &$form_state) {
 
   if (isset($v['profile_id']) AND $payment_profile = ms_core_payment_profile_load($v['profile_id'])) {
     // Merge in the form values with the object
-    $payment_profile = (object) array_merge((array) $payment_profile, $v);
+    $payment_profile = (object)array_merge((array)$payment_profile, $v);
     // Update the payment profile in RealVault.
     $result = ms_realex_update_profile($payment_profile);
     if (!$result['success']) {
       form_set_error('cc_num', $result['message']);
       return;
     }
-  }
-  else {
-    $payment_profile = (object) $v;
+  } else {
+    $payment_profile = (object)$v;
     $v['cc_first_name'] = $v['first_name'];
     $v['cc_last_name'] = $v['last_name'];
     $v['cc_number'] = $v['cc_num'];
@@ -270,8 +266,7 @@ function ms_realex_payment_profile_edit_form_validate($form, &$form_state) {
       $payment_profile = ms_core_payment_profile_save($payment_profile);
 
       ms_core_log('ms_realex', 'Successfully set up a new payment profile: !profile', array('!profile' => ms_core_print_r($payment_profile)));
-    }
-    else {
+    } else {
       ms_core_log_error('ms_realex', check_plain($result['message']));
     }
   }
@@ -295,12 +290,10 @@ function ms_realex_saved_method_checkout($payment_profile, $order, $data) {
   if ($order->order_type == 'recurring') {
     if ($order->recurring_schedule['has_trial']) {
       $amount = round($order->recurring_schedule['trial_amount'], 2);
-    }
-    else {
+    } else {
       $amount = round($order->recurring_schedule['main_amount'], 2);
     }
-  }
-  else {
+  } else {
     $amount = round($order->amount, 2);
   }
 
@@ -308,7 +301,6 @@ function ms_realex_saved_method_checkout($payment_profile, $order, $data) {
   if ($result['success']) {
     $payment = ms_core_new_payment($order->oid, 'ms_realex', 'cart');
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $order->oid;
 
     $payment->transaction = $result['txn_id'];
@@ -330,12 +322,12 @@ function ms_realex_saved_method_checkout($payment_profile, $order, $data) {
       case 'recurring':
         $payment->type = 'rec_signup';
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'cart':
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
     }
 
@@ -347,8 +339,7 @@ function ms_realex_saved_method_checkout($payment_profile, $order, $data) {
     ms_core_add_data($order, $data);
 
     return TRUE;
-  }
-  else {
+  } else {
     ms_core_log_error('ms_realex', $result['message']);
     form_set_error('cc_number', t('We received the following error processing your card.
       Please enter your information again or try a different card. @error',
@@ -411,12 +402,10 @@ function ms_realex_payment_submit_form_validate($form, &$form_state) {
   if ($order->order_type == 'recurring') {
     if ($order->recurring_schedule['has_trial']) {
       $amount = round($order->recurring_schedule['trial_amount'], 2);
-    }
-    else {
+    } else {
       $amount = round($order->recurring_schedule['main_amount'], 2);
     }
-  }
-  else {
+  } else {
     $amount = round($order->amount, 2);
   }
 
@@ -432,12 +421,12 @@ function ms_realex_payment_submit_form_validate($form, &$form_state) {
       case 'recurring':
         $payment->type = 'rec_signup';
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'cart':
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
     }
 
@@ -479,13 +468,11 @@ function ms_realex_payment_submit_form_validate($form, &$form_state) {
         );
         ms_core_add_data($order, $data);
         ms_core_log('ms_realex', 'Successfully set up a new payment profile: !profile', array('!profile' => ms_core_print_r($payment_profile)));
-      }
-      else {
+      } else {
         ms_core_log_error('ms_realex', check_plain($result['message']));
       }
     }
-  }
-  else {
+  } else {
     form_set_error('cc_number', check_plain($response['message']));
   }
 }
@@ -501,36 +488,6 @@ function ms_realex_payment_submit_form_submit($form, &$form_state) {
 }
 
 /**
- * Implements hook_mail().
- */
-function ms_realex_mail($key, &$message, $seed_vars) {
-  $order = $seed_vars['order'];
-  switch ($key) {
-    case 'billing_error':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
-
-      $subject = ms_core_variable_get('ms_realex_billing_error_subject', '', $order);
-      $body = ms_core_variable_get('ms_realex_billing_error_body', '', $order);
-      break;
-  }
-
-  // Replace the Tokens.
-  $message['subject'] = token_replace($subject,
-    array(
-    'ms_core_order' => $order,
-    'ms_core_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
-  $message['body'][] = token_replace($body,
-    array(
-    'ms_core_order' => $order,
-    'ms_core_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
-}
-
-/**
  * Implements hook_ms_core_modification_charge().
  *
  * Charges the amount and approves or denies the modification.
@@ -542,14 +499,12 @@ function ms_realex_ms_core_modification_charge($amount, $order) {
     $result = ms_realex_charge_saved_profile($payment_profile, $amount, $order);
     if ($result['success']) {
       return TRUE;
-    }
-    else {
+    } else {
       drupal_set_message($result['message'], 'error');
       ms_core_log_error('ms_realex', $result['message']);
       return FALSE;
     }
-  }
-  else {
+  } else {
     drupal_set_message(t('The payment profile for this order was not able to be loaded.'), 'error');
     return FALSE;
   }
@@ -576,7 +531,7 @@ function ms_realex_remote_charge(MsOrder $order, $amount, $data) {
   $merchantid = ms_core_variable_get('ms_realex_merchant_id', '', $order);
   $account = ms_core_variable_get('ms_realex_account_id', '', $order);
   $timestamp = strftime('%Y%m%d%H%M%S');
-  mt_srand((double)microtime()*1000000);
+  mt_srand((double)microtime() * 1000000);
   // We append the $account because each order must be unique in their system.
   $orderid = $order->oid . '-' . $account . ms_core_generate_transaction_id();
 
@@ -598,13 +553,13 @@ function ms_realex_remote_charge(MsOrder $order, $amount, $data) {
     <issueno>$issueno</issueno>
   </card>";
   if ($cvn) {
-    $xml .="
+    $xml .= "
      <cvn>
       <number>$cvn</number>
       <presind>1</presind>
     </cvn>";
   }
-  $xml .="
+  $xml .= "
     <autosettle flag='1'/>
     <sha1hash>$sha1hash</sha1hash>
     <tssinfo>
@@ -620,7 +575,7 @@ function ms_realex_remote_charge(MsOrder $order, $amount, $data) {
   $rr = new RealexRemote(ms_core_variable_get('ms_realex_api_url', 'https://epage.payandshop.com/epage-remote.cgi', $order), $xml);
   $result = $rr->record;
 
-  if ($result['result'][0] =='00') {
+  if ($result['result'][0] == '00') {
     // Check to see if hashes match.
     $timestamp = $result['timestamp'];
     $resultcode = $result['result'][0];
@@ -634,13 +589,11 @@ function ms_realex_remote_charge(MsOrder $order, $amount, $data) {
         array('!order' => ms_core_print_r($order), '!response' => ms_core_print_r($result)));
       $return['success'] = FALSE;
       $return['message'] = t("The security hashes didn't match.");
-    }
-    else {
+    } else {
       $return['success'] = TRUE;
       $return['txn_id'] = $result['pasref'];
     }
-  }
-  else {
+  } else {
     $return['success'] = FALSE;
     $return['message'] = $result['message'];
   }
@@ -659,17 +612,16 @@ function ms_realex_callback() {
   ms_core_log('ms_realex', 'New callback received: !post', array('!post' => ms_core_print_r($_POST)));
   $output = "";
 
-  $timestamp  = check_plain($_POST['TIMESTAMP']);
-  $result     = check_plain($_POST['RESULT']);
-  $orderid    = check_plain($_POST['ORDER_ID']);
-  $message    = filter_xss($_POST['MESSAGE']);
-  $authcode   = check_plain($_POST['AUTHCODE']);
-  $pasref     = check_plain($_POST['PASREF']);
+  $timestamp = check_plain($_POST['TIMESTAMP']);
+  $result = check_plain($_POST['RESULT']);
+  $orderid = check_plain($_POST['ORDER_ID']);
+  $message = filter_xss($_POST['MESSAGE']);
+  $authcode = check_plain($_POST['AUTHCODE']);
+  $pasref = check_plain($_POST['PASREF']);
   $realexsha1 = check_plain($_POST['SHA1HASH']);
-  $batch      = check_plain($_POST['BATCHID']);
 
   // Clean up the junk after the order id.
-  list($oid, $junk) = explode('-', $orderid);
+  list($oid) = explode('-', $orderid);
 
   if (!$order = ms_core_order_load($oid)) {
     print t('Unable to load the order.');
@@ -686,7 +638,15 @@ function ms_realex_callback() {
     exit();
   }
 
-  $amount = round((int) check_plain($_POST['AMOUNT']) / 100, 2);
+  $amount = round((int)check_plain($_POST['AMOUNT']) / 100, 2);
+
+  // Check that the currency and amount match the order.
+  if (!ms_core_valid_payment($order, $order->order_type == 'recurring' ? 'rec_signup' : 'cart', $amount)) {
+    drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+    ms_core_log_error('ms_realex', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+      array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($_POST)));
+    return FALSE;
+  }
 
   if ($result == '00') {
     switch ($order->order_type) {
@@ -694,13 +654,13 @@ function ms_realex_callback() {
         $payment = ms_core_new_payment($order->oid, 'ms_realex', 'rec_signup', 0, $order->currency);
         $payment->amount = $amount;
         $payment->transaction = $pasref;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'cart':
         $payment = ms_core_new_payment($order->oid, 'ms_realex', 'cart', $amount, $order->currency);
         $payment->transaction = $pasref;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
     }
 
@@ -741,12 +701,10 @@ function ms_realex_callback() {
             'payment_profile_id' => $payment_profile->id,
           );
           ms_core_add_data($order, $data);
-        }
-        else {
+        } else {
           ms_core_log_error('ms_realex', check_plain($_REQUEST['PMT_SETUP_MSG']));
         }
-      }
-      else {
+      } else {
         ms_core_log_error('ms_realex', check_plain($_REQUEST['PAYER_SETUP_MSG']));
       }
     }
@@ -756,16 +714,15 @@ function ms_realex_callback() {
     );
     ms_core_add_data($order, $data);
 
-    $output .= '<h2>'. t('Payment Successful!') .'</h2>';
-    $output .= '<h3>'. l(t('Click here to return to @name', array('@name' => variable_get('site_name', 'website'))), 'ms/thankyou/' . $order->order_key, array('absolute' => TRUE)) .'</h3>';
-  }
-  else {
+    $output .= '<h2>' . t('Payment Successful!') . '</h2>';
+    $output .= '<h3>' . l(t('Click here to return to @name', array('@name' => variable_get('site_name', 'website'))), 'ms/thankyou/' . $order->order_key, array('absolute' => TRUE)) . '</h3>';
+  } else {
     $payment = ms_core_new_payment($order->oid, 'ms_realex', 'pending', $amount, $order->currency);
     $payment->transaction = $pasref;
-    ms_core_enter_payment($payment, FALSE);
-    $output .= '<h2>'. t('Payment failed') .'</h2>';
-    $output .= '<h3>'. t('Reason provided: ') . $message .'</h3>';
-    $output .= '<h3>'. l(t('Click to return to website'), '<front>', array('absolute' => TRUE)) .'</h3>';
+    ms_core_enter_payment($payment);
+    $output .= '<h2>' . t('Payment failed') . '</h2>';
+    $output .= '<h3>' . t('Reason provided: ') . $message . '</h3>';
+    $output .= '<h3>' . l(t('Click to return to website'), '<front>', array('absolute' => TRUE)) . '</h3>';
   }
 
   print $output;
@@ -873,15 +830,15 @@ function ms_realex_setup_profile($data) {
 
   $timestamp = strftime('%Y%m%d%H%M%S');
 
-  $merchantid = ms_core_variable_get('ms_realex_merchant_id', '', $order);
-  $orderid = ms_core_generate_order_key() . '-' . ms_core_variable_get('ms_realex_account_id', '', $order);
+  $merchantid = variable_get('ms_realex_merchant_id', '');
+  $orderid = ms_core_generate_order_key() . '-' . variable_get('ms_realex_account_id', '');
   $amount = '';
   $currency = '';
   $firstname = $data['cc_first_name'];
   $lastname = $data['cc_last_name'];
-  $payerref = 'p_' . ms_core_generate_order_key() . '_' . ms_core_variable_get('ms_realex_account_id', '', $order);
+  $payerref = 'p_' . ms_core_generate_order_key() . '_' . variable_get('ms_realex_account_id', '');
 
-  $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $orderid, $amount, $currency, $payerref), $order);
+  $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $orderid, $amount, $currency, $payerref));
 
   $xml = "<request type='payer-new' timestamp='$timestamp'>
   <merchantid>$merchantid</merchantid>
@@ -894,7 +851,7 @@ function ms_realex_setup_profile($data) {
 </request>";
 
   // Parse the response with the class.
-  $rr = new RealexRemote(ms_core_variable_get('ms_realex_api_realex_url', 'https://epage.payandshop.com/epage-remote-plugins.cgi', $order), $xml);
+  $rr = new RealexRemote(variable_get('ms_realex_api_realex_url', 'https://epage.payandshop.com/epage-remote-plugins.cgi'), $xml);
   $result = $rr->record;
 
   if ($result['result'][0] == '00') {
@@ -908,9 +865,8 @@ function ms_realex_setup_profile($data) {
 
     $expdate = str_pad($data['cc_exp_month'], 2, '0', STR_PAD_LEFT) . substr($data['cc_exp_year'], 2, 2);
     $pmtref = $payerref . '-1';
-    $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $orderid, $amount, $currency, $payerref, $cardname, $cardnumber), $order);
+    $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $orderid, $amount, $currency, $payerref, $cardname, $cardnumber));
 
-    $cvn = $data['cc_cvv'];
     $xml2 = "<request type='card-new' timestamp='$timestamp'>
 <merchantid>$merchantid</merchantid>
 <orderid>$orderid</orderid>
@@ -926,7 +882,7 @@ function ms_realex_setup_profile($data) {
 </request>";
 
     // Parse the response with the class.
-    $rr2 = new RealexRemote(ms_core_variable_get('ms_realex_api_realex_url', 'https://epage.payandshop.com/epage-remote-plugins.cgi', $order), $xml2);
+    $rr2 = new RealexRemote(variable_get('ms_realex_api_realex_url', 'https://epage.payandshop.com/epage-remote-plugins.cgi'), $xml2);
     $result2 = $rr2->record;
 
     if ($result2['result'][0] == '00') {
@@ -940,13 +896,11 @@ function ms_realex_setup_profile($data) {
       $return['SAVED_PMT_TYPE'] = $cardtype;
       $return['SAVED_PMT_DIGITS'] = ms_core_mask_cc($cardnumber);
       $return['SAVED_PMT_EXPDATE'] = $expdate;
-    }
-    else {
+    } else {
       $return['success'] = FALSE;
       $return['message'] = $result2['message'];
     }
-  }
-  else {
+  } else {
     $return['success'] = FALSE;
     $return['message'] = $result['message'];
   }
@@ -969,13 +923,12 @@ function ms_realex_update_profile($payment_profile) {
 
   $timestamp = strftime('%Y%m%d%H%M%S');
   list($payerref, $paymentmethod) = explode('|', $payment_profile->remote_id);
-  $merchantid = ms_core_variable_get('ms_realex_merchant_id', '', $order);
-  $orderid = ms_core_generate_order_key() . '-' . ms_core_variable_get('ms_realex_account_id', '', $order);
+  $merchantid = variable_get('ms_realex_merchant_id', '');
   $cardnumber = $payment_profile->cc_num;
   $cardname = trim($payment_profile->first_name) . ' ' . trim($payment_profile->last_name);
   $cardtype = _ms_realex_card_type($payment_profile->cc_type);
   $expdate = str_pad($payment_profile->exp_month, 2, '0', STR_PAD_LEFT) . substr($payment_profile->exp_year, 2, 2);
-  $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $payerref, $paymentmethod, $expdate, $cardnumber), $order);
+  $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $payerref, $paymentmethod, $expdate, $cardnumber));
 
   $xml = "<request timestamp='$timestamp' type='card-update-card'>
   <merchantid>$merchantid</merchantid>
@@ -992,14 +945,13 @@ function ms_realex_update_profile($payment_profile) {
 </request>";
 
   // Parse the response with the class.
-  $rr = new RealexRemote(ms_core_variable_get('ms_realex_api_realex_url', 'https://epage.payandshop.com/epage-remote-plugins.cgi', $order), $xml);
+  $rr = new RealexRemote(variable_get('ms_realex_api_realex_url', 'https://epage.payandshop.com/epage-remote-plugins.cgi'), $xml);
   $result = $rr->record;
 
   if ($result['result'][0] == '00') {
     $return['payer_response'] = $result;
     $return['success'] = TRUE;
-  }
-  else {
+  } else {
     $return['success'] = FALSE;
     $return['message'] = $result['message'];
   }
@@ -1020,6 +972,7 @@ function ms_realex_update_profile($payment_profile) {
  */
 function ms_realex_charge_saved_profile($payment_profile, $amount, $order) {
   $return = array();
+  $result = array();
   if ($amount > 0) {
     require_once 'ms_realex.class.php';
 
@@ -1028,7 +981,7 @@ function ms_realex_charge_saved_profile($payment_profile, $amount, $order) {
     $merchantid = ms_core_variable_get('ms_realex_merchant_id', '', $order);
     $account = ms_core_variable_get('ms_realex_account_id', '', $order);
     $timestamp = strftime('%Y%m%d%H%M%S');
-    mt_srand((double)microtime()*1000000);
+    mt_srand((double)microtime() * 1000000);
     // We append the $account because each order must be unique in their system.
     $orderid = $order->oid . '-' . $account . ms_core_generate_transaction_id();
     list($payerref, $paymentmethod) = explode('|', $payment_profile->remote_id);
@@ -1057,27 +1010,22 @@ function ms_realex_charge_saved_profile($payment_profile, $amount, $order) {
     $authcode = $result['authcode'];
     $sha1hash = _ms_realex_sha1hash(array($timestamp, $merchantid, $orderid, $resultcode, $message, $pasref, $authcode), $order);
 
-    // Change back to our amount.
-    $amount = $amount / 100;
-    if ($result['result'][0] =='00') {
+    if ($result['result'][0] == '00') {
       // Check to see if hashes match.
       if ($sha1hash != $result['sha1hash']) {
         ms_core_log_error('ms_realex', 'Hash match failed for order: !order Response: !response',
           array('!order' => ms_core_print_r($order), '!response' => ms_core_print_r($result)));
         $return['success'] = FALSE;
         $return['message'] = t("The security hashes didn't match.");
-      }
-      else {
+      } else {
         $return['txn_id'] = $result['pasref'];
         $return['success'] = TRUE;
       }
-    }
-    else {
+    } else {
       $return['success'] = FALSE;
       $return['message'] = $result['message'];
     }
-  }
-  else {
+  } else {
     // Let's just mark it as successful and generate a transaction id.
     $return['success'] = TRUE;
     $return['txn_id'] = ms_core_generate_transaction_id();
@@ -1091,7 +1039,7 @@ function ms_realex_charge_saved_profile($payment_profile, $amount, $order) {
 /**
  * Generates a sha hash based on the passed in vars.
  */
-function _ms_realex_sha1hash($vars, $order) {
+function _ms_realex_sha1hash($vars, $order = NULL) {
   return sha1(sha1(implode('.', $vars)) . '.' . ms_core_variable_get('ms_realex_secret_key', '', $order));
 }
 

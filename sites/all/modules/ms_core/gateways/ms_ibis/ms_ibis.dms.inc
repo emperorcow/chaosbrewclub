@@ -29,7 +29,7 @@ function ms_ibis_process_dms(MsOrder $order) {
   if (substr($resp, 0, 14) == 'TRANSACTION_ID') {
     $trans_id = substr($resp, 16, 28);
     $url = $ecomm_client_url . '?trans_id=' . urlencode($trans_id) . '&ibis_order_id=' . $ibis_order_id;
-    $result = db_insert('ms_ibis_transaction')
+    db_insert('ms_ibis_transaction')
       ->fields(array(
         'trans_id' => $trans_id,
         'amount' => $amount,
@@ -44,10 +44,9 @@ function ms_ibis_process_dms(MsOrder $order) {
       ->execute();
 
     drupal_goto($url);
-  }
-  else {
+  } else {
     ms_core_log('ms_ibis', 'startDMSAuth failed: !result', array('!result' => $resp));
-    $result = db_insert('ms_ibis_error')
+    db_insert('ms_ibis_error')
       ->fields(array(
         'error_time' => REQUEST_TIME,
         'action' => 'startDMSAuth',
@@ -84,26 +83,25 @@ function ms_ibis_make_dms() {
 
   if (substr($resp, 8, 2) == 'OK') {
     $trans_id = $row['trans_id'];
-    $result = db_update('ms_ibis_transaction')
-    ->fields(array(
-      'dms_ok' => 'YES',
-      'makeDMS_amount' => $amount,
-    ))
-    ->condition('trans_id', $trans_id)
-    ->execute();
+    db_update('ms_ibis_transaction')
+      ->fields(array(
+        'dms_ok' => 'YES',
+        'makeDMS_amount' => $amount,
+      ))
+      ->condition('trans_id', $trans_id)
+      ->execute();
 
     ms_core_log('ms_ibis', 'DMS payment made (makeDMSTrans): !result', array('!result' => $resp));
     drupal_set_message(check_plain(t('DMS payment made: !result', array('!result' => $resp))));
     drupal_goto('admin/store/orders/' . $id);
-  }
-  else {
-    $result = db_insert('ms_ibis_error')
-    ->fields(array(
-      'error_time' => REQUEST_TIME,
-      'action' => 'makeDMSTrans',
-      'response' => $resp,
-    ))
-    ->execute();
+  } else {
+    db_insert('ms_ibis_error')
+      ->fields(array(
+        'error_time' => REQUEST_TIME,
+        'action' => 'makeDMSTrans',
+        'response' => $resp,
+      ))
+      ->execute();
 
     ms_core_log('ms_ibis', 'DMS payment make failed: !result', array('!result' => $resp));
     drupal_set_message(check_plain(t('DMS payment make failed: !result', array('!result' => $resp))));
@@ -111,49 +109,4 @@ function ms_ibis_make_dms() {
     // If failed, redirect admin back to order.
     drupal_goto('admin/store/orders/' . $id);
   }
-}
-
-/**
- * @todo - DMS payment form.
- */
-function ms_ibis_make_dms_form($form, $form_state, $order) {
-  global $language;
-
-  $wrapper = entity_metadata_wrapper('commerce_order', $order_id);
-  $currency = $wrapper->commerce_order_total->currency_code->value();
-  $amount = $wrapper->commerce_order_total->amount->value();
-
-  $result = db_query("SELECT trans_id FROM {ms_ibis_transaction} WHERE order_id = :order_id", array(':order_id' => $order_id));
-  $trans_id = $result->fetchField();
-
-  $data = array(
-    'order_id' => $order_id,
-    'lang' => $language->language,
-  );
-
-  $form['#action'] = base_path() . 'cart/ibis/make/dms';
-
-  foreach ($data as $name => $value) {
-    $form[$name] = array(
-      '#type' => 'hidden',
-      '#value' => $value,
-    );
-  }
-  $form['trans_id'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Transaction id'),
-    '#value' => $trans_id,
-  );
-  $form['amount'] = array(
-    '#type' => 'textfield',
-    '#title' => check_plain(t('Amount')),
-    '#value' => $amount,
-  );
-
-  $form['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Make DMS payment'),
-  );
-
-  return $form;
 }

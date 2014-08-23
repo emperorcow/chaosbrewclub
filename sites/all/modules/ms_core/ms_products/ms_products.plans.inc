@@ -17,13 +17,13 @@
 function ms_products_get_plan_option_text(MsProductsPlan $plan) {
   $display = array();
 
-  $display[] = "<span class='ms_products_plan_name'>" . ms_products_translate_plan($plan, 'name') . "</span>";
+  $display[] = "<span class='ms_products_plan_name'>" . $plan->name . "</span>";
 
   $display[] = "<span class='ms_products_plan_price'>"
     . ms_core_get_recurring_string($plan->recurring_schedule, $plan->cart_type == 'recurring')
     . "</span>";
   if ($plan->description) {
-    $display[] = "<span id='md" . $plan->sku . "' class='more_detailsDiv'>" . ms_products_translate_plan($plan, 'description') . "</span>";
+    $display[] = "<span id='md" . $plan->sku . "' class='more_detailsDiv'>" . $plan->description . "</span>";
   }
   return implode(' - ', $display);
 }
@@ -42,15 +42,17 @@ function ms_products_get_modify_options(MsProductsPlan $plan) {
     'upgrade' => array(),
     'downgrade' => array(),
   );
-  foreach (array_filter($plan->modify_options['upgrade']) as $sku => $name) {
-    if ($t_plan = ms_products_plan_load($sku)) {
-      $options['upgrade'][$t_plan->sku] = $t_plan;
+  if (isset($plan->modify_options['upgrade'])) {
+    foreach (array_filter($plan->modify_options['upgrade']) as $sku => $name) {
+      if ($t_plan = ms_products_plan_load($sku)) {
+        $options['upgrade'][$t_plan->sku] = $t_plan;
+      }
     }
-  }
 
-  foreach (array_filter($plan->modify_options['downgrade']) as $sku => $name) {
-    if ($t_plan = ms_products_plan_load($sku)) {
-      $options['downgrade'][$t_plan->sku] = $t_plan;
+    foreach (array_filter($plan->modify_options['downgrade']) as $sku => $name) {
+      if ($t_plan = ms_products_plan_load($sku)) {
+        $options['downgrade'][$t_plan->sku] = $t_plan;
+      }
     }
   }
 
@@ -123,7 +125,7 @@ function ms_products_get_plans($bundle = NULL, $reset = FALSE) {
 
   if (!is_null($bundle)) {
     foreach ($temp_plans as $sku => $plan) {
-      if ($plan->bundle != $bundle) {
+      if ($plan->bundle != $bundle || !empty($plan->disabled)) {
         unset($temp_plans[$sku]);
       }
     }
@@ -164,7 +166,7 @@ function ms_products_get_plans_list($bundle = NULL, $reset = FALSE) {
   $plans = ms_products_get_plans($bundle, $reset);
   $list = array();
   foreach ($plans as $plan) {
-    $list[$plan->sku] = ms_products_translate_plan($plan, 'name');
+    $list[$plan->sku] = $plan->name;
   }
   return $list;
 }
@@ -185,8 +187,6 @@ function ms_products_plan_load($sku) {
   if (isset($result[$sku]) AND $plan = $result[$sku]) {
     $plan->initialize();
 
-    // Give other modules a chance to add data to the product plan.
-    module_invoke_all('ms_products_plan_load', $plan);
     return $plan;
   }
   return FALSE;
@@ -247,7 +247,6 @@ function ms_products_plan_delete(MsProductsPlan $plan) {
  */
 function ms_products_get_expiration_date($sku, $start = 0, $recurring = TRUE) {
   $plan = ms_products_plan_load($sku);
-  $date = 0;
   $now = ($start) ? $start : REQUEST_TIME;
 
   if (!$recurring) {
@@ -259,8 +258,7 @@ function ms_products_get_expiration_date($sku, $start = 0, $recurring = TRUE) {
       if (!empty($plan->recurring_schedule['fixed_date'])) {
         // Calculate expiration date correctly for fixed date.
         $date = ms_core_calculate_next_fixed_date($plan->recurring_schedule['fixed_date_string'], $plan->recurring_schedule['fixed_date_type']);
-      }
-      else {
+      } else {
         // If the plan has a set number of occurrences, then multiply the length
         // by the occurrences to calculate expiration date.
         $date = ms_core_get_string_timestamp($plan->recurring_schedule['main_length'] * $plan->recurring_schedule['total_occurrences'], $plan->recurring_schedule['main_unit'], $now);
@@ -272,27 +270,23 @@ function ms_products_get_expiration_date($sku, $start = 0, $recurring = TRUE) {
       }
 
       return $date;
-    }
-    else {
+    } else {
       // Otherwise, return 0 because the purchase shouldn't have an expiration
       // date yet.
       return 0;
     }
-  }
-  else {
+  } else {
     if ($plan->recurring_schedule['main_length']) {
       if (!empty($plan->recurring_schedule['fixed_date'])) {
         // Calculate expiration date correctly for fixed date.
         $date = ms_core_calculate_next_fixed_date($plan->recurring_schedule['fixed_date_string'], $plan->recurring_schedule['fixed_date_type']);
-      }
-      else {
+      } else {
         // For non recurring purchases.
         $date = ms_core_get_string_timestamp($plan->recurring_schedule['main_length'], $plan->recurring_schedule['main_unit'], $now);
       }
 
       return $date;
-    }
-    else {
+    } else {
       // If no expiration, return 0.
       return 0;
     }
@@ -313,8 +307,7 @@ function ms_products_get_expiration_date($sku, $start = 0, $recurring = TRUE) {
 function ms_products_get_purchase_url($sku, $checkout = FALSE) {
   if ($checkout) {
     return url('ms_product/purchase/' . $sku . '/checkout');
-  }
-  else {
+  } else {
     return url('ms_product/purchase/' . $sku);
   }
 }
@@ -322,7 +315,7 @@ function ms_products_get_purchase_url($sku, $checkout = FALSE) {
 /**
  * Page callback: Adds a product plan to the cart and redirects.
  *
- * @param MsProductPlan $plan
+ * @param MsProductsPlan $plan
  *   The product plan.
  * @param bool $checkout
  *   (Optional) If TRUE, redirect to checkout page. Defaults to FALSE.
@@ -338,6 +331,7 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
   global $user;
   $renewing = FALSE;
   $bundle_info = ms_products_get_bundle($plan->bundle);
+
   if (arg(3) == 'renew') {
     $renewing = TRUE;
     // If the user is renewing, turn of the fixed date discount.
@@ -362,8 +356,7 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
       // Instead of just showing access denied, let's show alternatives. If
       // they can't purchase, see if they can renew, and vice versa.
       drupal_goto('ms_product/purchase/' . $plan->sku . '/renew/' . $id);
-    }
-    else {
+    } else {
       drupal_set_message(t('You are not able to purchase this @product.', array('@product' => $bundle_info['plan_name'])));
       drupal_access_denied();
     }
@@ -379,23 +372,35 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
       $plan = ms_products_plan_load($purchase->sku);
       $order = ms_core_order_load($purchase->oid);
 
+      // Get the product id of the purchase in the order.
+      $product_id = NULL;
+      foreach ($order->products as $product) {
+        if ($product->id == $plan->sku) {
+          $product_id = $product->order_product_id;
+        }
+      }
+
       $modify_options = ms_products_get_modify_options($plan);
       foreach ($modify_options['upgrade'] as $u_plan) {
-        if ($u_plan->sku == $sku) {
+        if ($u_plan->sku == $plan->sku) {
           if (!empty($plan->data['grant_credit'])) {
-            if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration)) {
+            if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $plan->recurring_schedule['main_amount'])) {
               $data['residual_credit'] = $credit;
               $order = ms_core_add_data($order, $data);
             }
           }
           // There is an upgrade available, do it.
-          drupal_goto('ms/downgrade/' . $order->oid . '/' . $sku);
+          if ($product_id) {
+            drupal_goto('ms/downgrade/' . $order->oid . '/' . $plan->sku . '/' . $product_id);
+          } else {
+            drupal_goto('ms/downgrade/' . $order->oid . '/' . $plan->sku);
+          }
         }
       }
       foreach ($modify_options['downgrade'] as $u_plan) {
-        if ($u_plan->sku == $sku) {
+        if ($u_plan->sku == $plan->sku) {
           // There is a downgrade available, redirect to downgrade page.
-          drupal_goto(ms_core_get_modify_url($order, $sku));
+          drupal_goto(ms_core_get_modify_url($order, $plan->sku, $product_id));
         }
       }
     }
@@ -423,14 +428,13 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
       // Send email.
       ms_products_send_mail('ms_products', 'signup', $account->mail, user_preferred_language($account), $payment_vars);
       drupal_set_message(t('The @purchase @product has been added to your account.',
-        array('@purchase' => ms_products_translate_plan($plan, 'name'), '@product' => $bundle_info['plan_name'])));
+        array('@purchase' => $plan->name, '@product' => $bundle_info['plan_name'])));
 
       // Redirect to Home Page.
       drupal_goto('');
-    }
-    else {
+    } else {
       // Create a new product and add it to the order.
-      $product = ms_core_new_product(ms_products_translate_plan($plan, 'name'), $plan->bundle, $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
+      $product = ms_core_new_product($plan->name, $plan->bundle, $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
 
       // Override the title if set.
       if (!empty($data['product_title'])) {
@@ -450,7 +454,7 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
         $product->name .= ' - ' . t('Renewal');
 
         // Add a credit for users who are renewing recurring products.
-        if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration)) {
+        if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $plan->recurring_schedule['main_amount'])) {
           $product->data['residual_credit'] = $credit;
         }
       }
@@ -469,8 +473,7 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
 
       drupal_goto($redirect);
     }
-  }
-  else {
+  } else {
     drupal_access_denied();
   }
 }
@@ -478,22 +481,23 @@ function ms_products_purchase_product(MsProductsPlan $plan, $checkout = FALSE, $
 /**
  * Adds a product plan to the cart.
  *
- * @param MsProductPlan $plan
+ * @param MsProductsPlan $plan
  *   The product plan.
  * @param array $data
  *   (Optional) An array of data to add to the product.
  * @param bool $show_message
  *   (Optional) Whether or not to show the add to cart message. Defaults to TRUE.
  */
-function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), $show_message = TRUE) {
+function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), $show_message = TRUE, $alter = TRUE) {
   global $user;
   $renewing = FALSE;
-  $bundle_info = ms_products_get_bundle($plan->bundle);
 
   $account = user_load($user->uid);
 
   // Let other modules restrict access to purchasing products.
-  module_invoke_all('ms_products_before_added_to_cart', $account, $plan);
+  if ($alter) {
+    module_invoke_all('ms_products_before_added_to_cart', $account, $plan);
+  }
 
   $plan->data = array_merge($plan->data, $data);
 
@@ -507,8 +511,7 @@ function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), 
       $expiration = ms_products_get_expiration_date($plan->sku);
       if (empty($data['renew_id']) || !$purchase = ms_products_purchase_load($data['renew_id'])) {
         $purchase = ms_products_insert_purchase(0, $account->uid, $plan->sku, $expiration, $status, 0, 1, 1);
-      }
-      else {
+      } else {
         ms_products_change_purchase_status($purchase->id, $status);
       }
 
@@ -521,10 +524,9 @@ function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), 
 
       // Send email.
       ms_products_send_mail('ms_products', 'signup', $account->mail, user_preferred_language($account), $payment_vars);
-    }
-    else {
+    } else {
       // Create a new product and add it to the order.
-      $product = ms_core_new_product(ms_products_translate_plan($plan, 'name'), $plan->bundle, $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
+      $product = ms_core_new_product($plan->name, $plan->bundle, $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
 
       // Override the title if set.
       if (!empty($data['product_title'])) {
@@ -544,7 +546,7 @@ function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), 
         $product->name .= ' - ' . t('Renewal');
 
         // Add a credit for users who are renewing recurring products.
-        if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration)) {
+        if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $plan->recurring_schedule['main_amount'])) {
           $product->data['residual_credit'] = $credit;
         }
       }
@@ -555,8 +557,7 @@ function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), 
 
       return ms_core_add_cart_product($product, FALSE, $show_message);
     }
-  }
-  else {
+  } else {
     drupal_set_message(t('Unable to add product to cart.'), 'error');
   }
 
@@ -569,7 +570,7 @@ function ms_products_add_product_to_cart(MsProductsPlan $plan, $data = array(), 
  * Renders new options.
  */
 function ms_products_plan_period_settings_callback($form, $form_state) {
-  return $form['period_settings'];
+  return $form['period_settings']['container'];
 }
 
 /**
@@ -604,26 +605,33 @@ function ms_products_plan_form(&$form, &$form_state) {
 
   if (arg(4) == 'add') {
     drupal_set_title(t('Add a new @plan_name', array('@plan_name' => $bundle_info['plan_name'])));
-  }
-  else if ($form_state['form type'] == 'clone') {
+  } else if ($form_state['form type'] == 'clone') {
     drupal_set_title(t('Clone @plan_name', array('@plan_name' => $bundle_info['plan_name'])));
-  }
-  else {
+  } else {
     drupal_set_title(t('Edit @plan_name : @name', array('@plan_name' => $bundle_info['plan_name'], '@name' => $plan->name)));
   }
+
+  $form['vertical_tabs'] = array(
+    '#type' => 'vertical_tabs',
+  );
 
   $form['product'] = array(
     '#type' => 'fieldset',
     '#title' => t('@plan_name Info', array('@plan_name' => $bundle_info['plan_name'])),
     '#collapsible' => FALSE,
     '#collapsed' => FALSE,
+    '#group' => 'vertical_tabs',
   );
   $form['advanced'] = array(
     '#type' => 'fieldset',
     '#title' => t('Advanced Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
   );
+
+  // Field Attach API
+  field_attach_form('ms_products_plan', $plan, $form, $form_state);
 
   // Store the bundle name.
   $form['product']['bundle'] = array(
@@ -679,9 +687,13 @@ function ms_products_plan_form(&$form, &$form_state) {
     '#title' => t('Period Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => FALSE,
+    '#group' => 'vertical_tabs',
+  );
+  $form['period_settings']['container'] = array(
+    '#type' => 'container',
     '#attributes' => array('id' => 'ms_products_plan_period_settings'),
   );
-  $form['period_settings']['recurring'] = array(
+  $form['period_settings']['container']['recurring'] = array(
     '#type' => 'checkbox',
     '#title' => t('Recurring Subscription?'),
     '#default_value' => ($plan->cart_type == 'recurring'),
@@ -694,7 +706,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       'effect' => 'fade',
     ),
   );
-  $form['period_settings']['fixed_date'] = array(
+  $form['period_settings']['container']['fixed_date'] = array(
     '#type' => 'checkbox',
     '#title' => t('Fixed Date?'),
     '#default_value' => $plan->recurring_schedule['fixed_date'],
@@ -708,13 +720,13 @@ function ms_products_plan_form(&$form, &$form_state) {
     ),
   );
   if (!empty($form_state['values']['fixed_date']) || (!isset($form_state['values']['fixed_date']) AND $plan->recurring_schedule['fixed_date'])) {
-    $form['period_settings']['fixed_date_settings'] = array(
+    $form['period_settings']['container']['fixed_date_settings'] = array(
       '#type' => 'fieldset',
       '#title' => t('Expiration Settings'),
       '#collapsible' => TRUE,
       '#collapsed' => FALSE,
     );
-    $form['period_settings']['fixed_date_settings']['fixed_date_discount'] = array(
+    $form['period_settings']['container']['fixed_date_settings']['fixed_date_discount'] = array(
       '#type' => 'checkbox',
       '#title' => t('Prorate the Fee?'),
       '#return_value' => 1,
@@ -724,7 +736,7 @@ function ms_products_plan_form(&$form, &$form_state) {
         period. So, for example, if the user starts in the middle of the period, they will only pay
         for half the amount."),
     );
-    $form['period_settings']['fixed_date_settings']['fixed_date_type'] = array(
+    $form['period_settings']['container']['fixed_date_settings']['fixed_date_type'] = array(
       '#type' => 'select',
       '#title' => t('Fixed Date Type'),
       '#options' => array(
@@ -739,7 +751,7 @@ function ms_products_plan_form(&$form, &$form_state) {
         Weekly means the purchase will expire/renew on the same day every week."),
       '#required' => FALSE,
     );
-    $form['period_settings']['fixed_date_settings']['fixed_date_string'] = array(
+    $form['period_settings']['container']['fixed_date_settings']['fixed_date_string'] = array(
       // @todo - Add ajax to replace the elements with the appropriate date/time elements so that users won't add wrong elements.
       // For example, if they choose Month, use a select list of dates 1-31. If they choose Week, then use select list Sunday - Saturday.
       // If they choose Yearly, we should just use a textbox...
@@ -753,7 +765,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       '#default_value' => $plan->recurring_schedule['fixed_date_string'],
     );
     if (!empty($form_state['values']['recurring']) || (!isset($form_state['values']['recurring']) && $plan->cart_type == 'recurring')) {
-      $form['period_settings']['fixed_date_settings']['recurring_optional'] = array(
+      $form['period_settings']['container']['fixed_date_settings']['recurring_optional'] = array(
         '#type' => 'checkbox',
         '#title' => t('Make Auto-Bill Optional?'),
         '#default_value' => isset($plan->data['recurring_optional']) ? $plan->data['recurring_optional'] : FALSE,
@@ -762,7 +774,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       $tc_options = range(0, 90);
       $tc_options[0] = t('Recur Until Canceled');
       unset($tc_options[1]);
-      $form['period_settings']['fixed_date_settings']['total_occurrences'] = array(
+      $form['period_settings']['container']['fixed_date_settings']['total_occurrences'] = array(
         '#type' => 'select',
         '#title' => t('Number of Periods Until Expiration'),
         '#description' => t("How many times to bill the user when using Recurring Subscriptions."),
@@ -773,8 +785,9 @@ function ms_products_plan_form(&$form, &$form_state) {
     }
   }
   if ((isset($form_state['values']['fixed_date']) && empty($form_state['values']['fixed_date']) && empty($form_state['values']['recurring']))
-      || (!isset($form_state['values']['fixed_date']) && $plan->cart_type == 'cart' && !$plan->recurring_schedule['fixed_date'])) {
-    $form['period_settings']['expiration_settings'] = array(
+    || (!isset($form_state['values']['fixed_date']) && $plan->cart_type == 'cart' && !$plan->recurring_schedule['fixed_date'])
+  ) {
+    $form['period_settings']['container']['expiration_settings'] = array(
       '#type' => 'fieldset',
       '#title' => t('Expiration Settings'),
       '#collapsible' => TRUE,
@@ -783,17 +796,17 @@ function ms_products_plan_form(&$form, &$form_state) {
     $el_options = range(0, 90);
     $el_options[0] = 'Never Expire';
     // @todo - Put these side by side. Use AJAX to make the main_unit hidden if never expire is selected.
-    $form['period_settings']['expiration_settings']['main_length'] = array(
+    $form['period_settings']['container']['expiration_settings']['main_length'] = array(
       '#type' => 'select',
       '#title' => t('Length'),
       '#options' => $el_options,
       '#default_value' => $plan->recurring_schedule['main_length'],
       '#description' => t("How many units (below) before expiration.
         If set to never expire, the user will pay 1 time for a lifetime @purchase_name.",
-          array('@purchase_name' => $bundle_info['purchase_name'])),
+        array('@purchase_name' => $bundle_info['purchase_name'])),
       '#required' => FALSE,
     );
-    $form['period_settings']['expiration_settings']['main_unit'] = array(
+    $form['period_settings']['container']['expiration_settings']['main_unit'] = array(
       '#type' => 'select',
       '#title' => t('Unit'),
       '#options' => array(
@@ -809,14 +822,15 @@ function ms_products_plan_form(&$form, &$form_state) {
     );
   }
   if ((!empty($form_state['values']['recurring']) && empty($form_state['values']['fixed_date']))
-       || (!isset($form_state['values']['recurring']) && $plan->cart_type == 'recurring' && !$plan->recurring_schedule['fixed_date'])) {
-    $form['period_settings']['recurring_settings'] = array(
+    || (!isset($form_state['values']['recurring']) && $plan->cart_type == 'recurring' && !$plan->recurring_schedule['fixed_date'])
+  ) {
+    $form['period_settings']['container']['recurring_settings'] = array(
       '#type' => 'fieldset',
       '#title' => t('Recurring Settings'),
       '#collapsible' => TRUE,
       '#collapsed' => FALSE,
     );
-    $form['period_settings']['recurring_settings']['recurring_optional'] = array(
+    $form['period_settings']['container']['recurring_settings']['recurring_optional'] = array(
       '#type' => 'checkbox',
       '#title' => t('Make Auto-Bill Optional?'),
       '#default_value' => isset($plan->data['recurring_optional']) ? $plan->data['recurring_optional'] : FALSE,
@@ -825,7 +839,7 @@ function ms_products_plan_form(&$form, &$form_state) {
     $tc_options = range(0, 90);
     $tc_options[0] = t('Recur Until Canceled');
     unset($tc_options[1]);
-    $form['period_settings']['recurring_settings']['total_occurrences'] = array(
+    $form['period_settings']['container']['recurring_settings']['total_occurrences'] = array(
       '#type' => 'select',
       '#title' => t('Number of Periods Until Expiration'),
       '#description' => t("How many times to bill the user when using Recurring Subscriptions."),
@@ -835,7 +849,7 @@ function ms_products_plan_form(&$form, &$form_state) {
     );
     $ml_options = range(0, 90);
     unset($ml_options[0]);
-    $form['period_settings']['recurring_settings']['main_length'] = array(
+    $form['period_settings']['container']['recurring_settings']['main_length'] = array(
       '#type' => 'select',
       '#title' => t('Period Length'),
       '#options' => $ml_options,
@@ -843,7 +857,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       '#default_value' => $plan->recurring_schedule['main_length'],
       '#required' => FALSE,
     );
-    $form['period_settings']['recurring_settings']['main_unit'] = array(
+    $form['period_settings']['container']['recurring_settings']['main_unit'] = array(
       '#type' => 'select',
       '#title' => t('Period Unit'),
       '#options' => array(
@@ -857,7 +871,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       '#required' => FALSE,
     );
 
-    $form['period_settings']['recurring_settings']['trial'] = array(
+    $form['period_settings']['container']['recurring_settings']['trial'] = array(
       '#type' => 'fieldset',
       '#title' => t('Trial Period Settings (Optional)'),
       '#collapsible' => TRUE,
@@ -866,7 +880,7 @@ function ms_products_plan_form(&$form, &$form_state) {
     );
     $tl_options = range(0, 90);
     $tl_options[0] = 'No Trial Period';
-    $form['period_settings']['recurring_settings']['trial']['trial_length'] = array(
+    $form['period_settings']['container']['recurring_settings']['trial']['trial_length'] = array(
       '#type' => 'select',
       '#title' => t('Trial Period Length'),
       '#options' => $tl_options,
@@ -875,7 +889,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       '#required' => FALSE,
       '#default_value' => $plan->recurring_schedule['trial_length'],
     );
-    $form['period_settings']['recurring_settings']['trial']['trial_unit'] = array(
+    $form['period_settings']['container']['recurring_settings']['trial']['trial_unit'] = array(
       '#type' => 'select',
       '#title' => t('Trial Period Unit'),
       '#options' => array(
@@ -888,7 +902,7 @@ function ms_products_plan_form(&$form, &$form_state) {
       '#default_value' => $plan->recurring_schedule['trial_unit'],
       '#required' => FALSE,
     );
-    $form['period_settings']['recurring_settings']['trial']['trial_amount'] = array(
+    $form['period_settings']['container']['recurring_settings']['trial']['trial_amount'] = array(
       '#type' => 'textfield',
       '#title' => t('Trial Amount'),
       '#size' => 8,
@@ -904,45 +918,64 @@ function ms_products_plan_form(&$form, &$form_state) {
     '#title' => t('Upgrade & Downgrade Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
     '#description' => '<p>' . t("Users can always upgrade from a non-recurring @plan to a recurring @plan.",
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t("Users can upgrade or downgrade from one recurring @plan to another if the payment gateway support it.",
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t("Some of the payment gateways which fully support upgrades and downgrades are Stripe, Authorize.net CIM, and Realex.") . '</p>',
   );
   $form['modify']['grant_credit'] = array(
     '#type' => 'checkbox',
-    '#title' => t('Apply credit when upgrading?'),
+    '#title' => t('Apply credit when upgrading'),
     '#default_value' => isset($plan->data['grant_credit']) ? $plan->data['grant_credit'] : TRUE,
     '#description' => t("If this is active, then users will have any credit remaining in their purchase applied to the cost of upgrading."),
+  );
+  $form['modify']['modify_existing_term'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Keep the existing term expiration date when upgrading/downgrading'),
+    '#default_value' => isset($plan->data['modify_existing_term']) ? $plan->data['modify_existing_term'] : FALSE,
+    '#description' => t("If this is active, then upgrading/downgrading to plans with the same main period will not change the expiration date of the purchase."),
   );
   $form['modify']['upgrade_options'] = array(
     '#type' => 'checkboxes',
     '#title' => t('Upgrade Options'),
     '#description' => '<p>' . t("Select which @plan_plural will be offered as an upgrade option from this @plan.",
-      array('@plan_plural' => $bundle_info['plan_name_plural'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@plan_plural' => $bundle_info['plan_name_plural'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t('When a user upgrades, they are charged the difference between their current @purchase and the new @plan, and their @plan is changed immediately.',
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t("Some payment gateways don't support this very well. For example, PayPal WPS can't charge users when they upgrade, so it will grant access to the new @plan immediately and change the billing amount at the next scheduled payment time. Still other payment gateways don't support changing active subscriptions at all, so users will need to cancel their current @purchase and purchase a new one.",
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t("Still other payment gateways don't support changing active subscriptions at all, so users will need to cancel their current @purchase and purchase a new one.",
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>',
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>',
     '#default_value' => $plan->modify_options['upgrade'],
     '#options' => ms_products_get_modify_options_plan_list($bundle, $plan->sku),
+    '#empty' => t("You need to add more plans before you can set the upgrade options."),
   );
   $form['modify']['downgrade_options'] = array(
     '#type' => 'checkboxes',
     '#title' => t('Downgrade Options'),
     '#description' => '<p>' . t("Select which @plan_plural will be offered as a downgrade option from this @plan.",
-      array('@plan_plural' => $bundle_info['plan_name_plural'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@plan_plural' => $bundle_info['plan_name_plural'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t("When a user downgrades, their @purchase is put into a 'downgraded' state until the end of the term, at which point the @purchase will change to the new @plan automatically.",
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>'
       . '<p>' . t("Most payment gateways don't support downgrades at all, so users will need to cancel their current @purchase and purchase a new one.",
-      array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>',
+        array('@purchase' => $bundle_info['purchase_name'], '@plan' => $bundle_info['plan_name'])) . '</p>',
     '#default_value' => $plan->modify_options['downgrade'],
     '#options' => ms_products_get_modify_options_plan_list($bundle, $plan->sku),
+    '#empty' => t("You need to add more plans before you can set the downgrade options."),
   );
-
+  $form['advanced']['expire_when'] = array(
+    '#type' => 'select',
+    '#title' => t('When to Expire the @purchase?', array('@purchase' => $bundle_info['purchase_name'])),
+    '#description' => t("When, if ever, should the @purchase be expired.", array('@purchase' => $bundle_info['purchase_name'])),
+    '#default_value' => $plan->expire_when,
+    '#options' => array(
+      '' => t('Never'),
+      'subscr_eot' => t('End of Term'),
+      'subscr_cancel' => t('Upon Cancellation'),
+    ),
+  );
   $roles2 = (user_roles(FALSE));
   $form['advanced']['allow_roles'] = array(
     '#type' => 'checkboxes',
@@ -964,6 +997,7 @@ function ms_products_plan_form(&$form, &$form_state) {
     '#title' => t('Email Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
   );
   $token_types = array('ms_products_purchase', 'ms_products_plan', 'ms_core_order', 'ms_core_payment', 'user');
 
@@ -1066,10 +1100,10 @@ function ms_products_plan_form(&$form, &$form_state) {
     '#description' => t("This email will be sent when a user extends or modifies their @purchase_name.
     Recurring @purchase_plural can only be modified, and Non-Recurring @purchase_plural can only be extended.
     Leave blank to not send an email.",
-    array(
-      '@purchase_plural' => $bundle_info['purchase_name_plural'],
-      '@purchase_name' => $bundle_info['purchase_name'],
-    )),
+      array(
+        '@purchase_plural' => $bundle_info['purchase_name_plural'],
+        '@purchase_name' => $bundle_info['purchase_name'],
+      )),
     '#required' => FALSE,
   );
   $form['email']['modify_mail_token_help']['tokens'] = array(
@@ -1104,12 +1138,9 @@ function ms_products_plan_form(&$form, &$form_state) {
 
   // Plan options.
   $form['plan_options'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Plan options'),
+    '#type' => 'container',
     '#prefix' => "<div id='ms_products_plan_options_wrapper'>",
     '#suffix' => "</div>",
-    '#collapsible' => TRUE,
-    '#collapsed' => TRUE,
     '#tree' => TRUE,
   );
   $form['plan_options']['change_plan_options'] = array(
@@ -1127,7 +1158,7 @@ function ms_products_plan_form(&$form, &$form_state) {
         $option_name = $form_state['triggering_element']['#option_name'];
 
         if (!empty($bundle_info['plan_options'][$option_name])) {
-          $option_info = (object) $bundle_info['plan_options'][$option_name];
+          $option_info = (object)$bundle_info['plan_options'][$option_name];
           $option_info->sku = $plan->sku;
           $option_info->name = $option_name;
           $plan->plan_options[$option_name] = $option_info;
@@ -1143,7 +1174,7 @@ function ms_products_plan_form(&$form, &$form_state) {
 
       case 'add_custom_plan_option':
         $option_name = $form_state['values']['plan_options']['custom']['custom_option_name'];
-        $option_info = (object) array(
+        $option_info = (object)array(
           'title' => $form_state['values']['plan_options']['custom']['custom_option_title'],
           'description' => '',
           'optional' => TRUE,
@@ -1184,15 +1215,15 @@ function ms_products_plan_form(&$form, &$form_state) {
     '#type' => 'machine_name',
     '#machine_name' => array(
       'exists' => 'ms_products_plan_option_exists',
-      'source' => array('plan_options', 'custom', 'custom_option_title'),
+      'source' => array('plan_options_container', 'plan_options', 'custom', 'custom_option_title'),
       'replace_pattern' => '[^a-z0-9-]+',
       'replace' => '-',
     ),
     '#required' => FALSE,
   );
   unset(
-    $form_state['input']['plan_options']['custom']['custom_option_name'],
-    $form_state['input']['plan_options']['custom']['custom_option_title']
+  $form_state['input']['plan_options']['custom']['custom_option_name'],
+  $form_state['input']['plan_options']['custom']['custom_option_title']
   );
   $form['plan_options']['custom']['add'] = array(
     '#type' => 'button',
@@ -1257,8 +1288,9 @@ function ms_products_plan_form(&$form, &$form_state) {
     );
     // If the product is not optional, hide default_value and make it be on by default.
     if ((!empty($form_state['values']['plan_options'][$option_name]['widget']) &&
-      ($form_state['values']['plan_options'][$option_name]['widget'] == 'radios' || $form_state['values']['plan_options'][$option_name]['widget'] == 'select')) ||
-      (!isset($form_state['values']['plan_options'][$option_name]['widget']) && ($option_info->widget == 'radios' || $option_info->widget == 'select'))) {
+        ($form_state['values']['plan_options'][$option_name]['widget'] == 'radios' || $form_state['values']['plan_options'][$option_name]['widget'] == 'select')) ||
+      (!isset($form_state['values']['plan_options'][$option_name]['widget']) && ($option_info->widget == 'radios' || $option_info->widget == 'select'))
+    ) {
       $form['plan_options'][$option_name]['sub_options'] = array(
         '#type' => 'textarea',
         '#title' => t('Options'),
@@ -1273,8 +1305,7 @@ function ms_products_plan_form(&$form, &$form_state) {
         '#type' => 'value',
         '#value' => FALSE,
       );
-    }
-    else {
+    } else {
       $form['plan_options'][$option_name]['sub_options'] = array(
         '#type' => 'value',
         '#value' => '',
@@ -1293,15 +1324,15 @@ function ms_products_plan_form(&$form, &$form_state) {
       );
       // If the product is not optional, hide default_value and make it be on by default.
       if (!empty($form_state['values']['plan_options'][$option_name]['optional']) ||
-        (!isset($form_state['values']['plan_options'][$option_name]['optional']) && $option_info->optional)) {
+        (!isset($form_state['values']['plan_options'][$option_name]['optional']) && $option_info->optional)
+      ) {
         $form['plan_options'][$option_name]['default_value'] = array(
           '#type' => 'checkbox',
           '#title' => t('On by default?'),
           '#description' => t('Whether or not the option is on by default.'),
           '#default_value' => $option_info->default_value,
         );
-      }
-      else {
+      } else {
         $form['plan_options'][$option_name]['default_value'] = array(
           '#type' => 'value',
           '#value' => TRUE,
@@ -1324,6 +1355,16 @@ function ms_products_plan_form(&$form, &$form_state) {
     );
   }
 
+  $form['plan_options_container'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Plan options'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
+  );
+  $form['plan_options_container']['plan_options'] = $form['plan_options'];
+  unset($form['plan_options']);
+
   foreach ($bundle_info['custom_elements'] as $key => $value) {
     $form[$key] = $value;
   }
@@ -1331,8 +1372,7 @@ function ms_products_plan_form(&$form, &$form_state) {
   foreach ($bundle_info['plan_fields'] as $key => $value) {
     if (isset($plan->$key)) {
       $value['#default_value'] = $plan->$key;
-    }
-    else {
+    } else {
       $value['#default_value'] = $plan->data[$key];
     }
 
@@ -1367,7 +1407,7 @@ function ms_products_plan_option_exists($option_name) {
  * Callback for adding a plan option.
  */
 function ms_products_add_plan_option_callback($form, $form_state) {
-  return $form['plan_options'];
+  return $form['plan_options_container']['plan_options'];
 }
 
 /**
@@ -1380,15 +1420,13 @@ function ms_products_plan_form_validate($form, &$form_state) {
   // Validate Trial Fee.
   if (isset($v['trial_amount']) && !is_numeric($v['trial_amount'])) {
     form_set_error('trial_amount', t('You must use a number for the Trial Amount.'));
-  }
-  elseif (isset($v['trial_amount']) && $v['trial_amount'] < 0) {
+  } elseif (isset($v['trial_amount']) && $v['trial_amount'] < 0) {
     form_set_error('trial_amount', t('The Trial Amount must be positive.'));
   }
   // Validate Regular Fee.
   if ($v['main_amount'] && !is_numeric($v['main_amount'])) {
     form_set_error('main_amount', t('You must use a number for the Price.'));
-  }
-  elseif ($v['main_amount'] && $v['main_amount'] < 0) {
+  } elseif ($v['main_amount'] && $v['main_amount'] < 0) {
     form_set_error('main_amount', t('The Price must be positive.'));
   }
   if (($v['main_amount'] == 0 OR $v['main_amount'] == 0.00) AND $v['recurring']) {
@@ -1404,6 +1442,10 @@ function ms_products_plan_form_validate($form, &$form_state) {
 
   // Let modules add their own validation.
   module_invoke_all('ms_products_api_plan_form_validate', $form_state, $form_state['values']['bundle']);
+
+  $plan = $form_state['item'];
+
+  field_attach_form_validate('ms_products_plan', $plan, $form, $form_state);
 }
 
 /**
@@ -1412,7 +1454,7 @@ function ms_products_plan_form_validate($form, &$form_state) {
  * @see ms_products_plan_form_validate()
  */
 function ms_products_plan_form_submit($form, &$form_state) {
-  $form_values = (object) $form_state['values'];
+  $form_values = (object)$form_state['values'];
   $plan = $form_state['item'];
   $account = user_load_by_name($form_values->username);
 
@@ -1472,6 +1514,7 @@ function ms_products_plan_form_submit($form, &$form_state) {
   $plan->data['deny_roles'] = $form_values->deny_roles;
   $plan->data['grant_credit'] = $form_values->grant_credit;
   $plan->data['change_plan_options'] = $form_values->plan_options['change_plan_options'];
+  $plan->data['modify_existing_term'] = $form_values->modify_existing_term;
 
   $bundle_info = ms_products_get_bundle($plan->bundle);
 
@@ -1487,7 +1530,7 @@ function ms_products_plan_form_submit($form, &$form_state) {
         if (!is_numeric($option_info['amount'])) {
           $option_info['amount'] = 0;
         }
-        $plan->plan_options[$option_name] = (object) $option_info;
+        $plan->plan_options[$option_name] = (object)$option_info;
         $plan->plan_options[$option_name]->sku = $plan->sku;
         $plan->plan_options[$option_name]->expiration = strtotime($option_info['expiration'], 0);
         $plan->plan_options[$option_name]->name = $option_name;
@@ -1509,6 +1552,8 @@ function ms_products_plan_form_submit($form, &$form_state) {
   drupal_set_message(t('@plan_name Saved: %sname.',
     array('@plan_name' => $bundle_info['plan_name'], '%sname' => $plan->name)));
 
+  $form_state['saved_form'] = $form;
+
   $form_state['item'] = $plan;
 }
 
@@ -1524,8 +1569,7 @@ function ms_products_purchase_plan_page($bundle) {
   $plans = ms_products_get_plans_list($bundle);
   if (!empty($plans)) {
     return drupal_get_form('ms_products_user_purchase_options_form', $plans, $bundle, arg(3));
-  }
-  else {
+  } else {
     return t('There are no plans available.');
   }
 }
@@ -1612,7 +1656,7 @@ function ms_products_add_product_options(MsProduct &$product, $product_options, 
   foreach ($product_options as $option_name => $option_info) {
     $product->data['adjustments'][$option_name] = array(
       'value' => $option_info->amount,
-      'display' => $option_info->title ,
+      'display' => $option_info->title,
       'active' => !empty($defaults[$option_name]),
       'optional' => $option_info->optional,
       'option' => !empty($defaults[$option_name]) ? $defaults[$option_name] : '',
@@ -1677,7 +1721,7 @@ function ms_products_plans_element($form_state, $title, $description, $options, 
     }
   }
 
-  if (!empty($default) && $selected_plan = ms_products_plan_load($default)) {
+  if (!empty($default) && ($selected_plan = ms_products_plan_load($default))) {
     // @todo - Add JS that will move the plan options underneath the selecting element.
     /*
     $element['#attached']['js']['alert("Hello!");'] = array(
@@ -1696,7 +1740,7 @@ function ms_products_plans_element($form_state, $title, $description, $options, 
               '#type' => $option_info->widget,
               '#default_value' => !empty($default_options[$option_name]) ? $default_options[$option_name] : $option_info->default_value,
               '#disabled' => empty($option_info->optional),
-              '#title' => $option_info->amount > 0 ? $option_info->title . " (". ms_core_format_money($option_info->amount) .")": $option_info->title,
+              '#title' => $option_info->amount > 0 ? $option_info->title . " (" . ms_core_format_money($option_info->amount) . ")" : $option_info->title,
               '#description' => $option_info->description,
             );
             break;
@@ -1708,7 +1752,7 @@ function ms_products_plans_element($form_state, $title, $description, $options, 
             foreach ($sub_options_array as $option_key => $sub_option) {
               $sub_options[$option_key] = $sub_option['name'];
               if (!empty($sub_option['price'])) {
-                $sub_options[$option_key] .= " (+". ms_core_format_money($sub_option['price']) . ")";
+                $sub_options[$option_key] .= " (+" . ms_core_format_money($sub_option['price']) . ")";
               }
             }
             $element['options'][$option_name] = array(

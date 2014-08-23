@@ -24,7 +24,7 @@ class MsCoreTestCase extends DrupalWebTestCase {
     parent::setUp('ms_core');
 
     // Create our users
-    $this->admin_user = $this->drupalCreateUser(array(
+    $this->admin_user = (object)$this->drupalCreateUser(array(
       'administer moneyscripts settings',
       'administer moneyscripts orders',
       ));
@@ -35,6 +35,7 @@ class MsCoreTestCase extends DrupalWebTestCase {
       'view own moneyscripts orders'
       ));
     // Login the admin
+    /** @noinspection PhpParamsInspection */
     $this->drupalLogin($this->admin_user);
 
     // Save the settings

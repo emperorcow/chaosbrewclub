@@ -285,8 +285,7 @@ function ms_donation_enter_donation_form_validate($form, &$form_state) {
 
   if ($amount < $min) {
     form_set_error('donation', t("You must enter an amount greater than @min", array('@min' => $min)));
-  }
-  else {
+  } else {
     ms_donation_add_donation_to_cart($amount);
 
     // Redirect to ms/checkout.
@@ -495,6 +494,8 @@ function ms_donation_block_save($delta = '', $edit = array()) {
  * Implements hook_block_view().
  */
 function ms_donation_block_view($delta = '') {
+  $block = array();
+
   switch ($delta) {
     case 'ms_donation':
       $form = drupal_get_form('ms_donation_form');
@@ -540,8 +541,7 @@ function ms_donation_form($form, &$form_state) {
         '#size' => 15,
       );
     }
-  }
-  else {
+  } else {
     $form['amount'] = array(
       '#type' => 'textfield',
       '#required' => TRUE,
@@ -569,8 +569,7 @@ function ms_donation_form($form, &$form_state) {
       '#options' => $terms,
       '#default_value' => key($terms),
     );
-  }
-  else {
+  } else {
     $form['term'] = array(
       '#type' => 'value',
       '#value' => 'once',
@@ -603,11 +602,9 @@ function ms_donation_form_validate($form, &$form_state) {
   }
   if (!is_numeric($amount)) {
     form_set_error('amount', t("You must enter only numeric amounts."));
-  }
-  elseif ($amount <= 0) {
+  } elseif ($amount <= 0) {
     form_set_error('amount', t("You must enter a positive number."));
-  }
-  elseif ($amount < $min) {
+  } elseif ($amount < $min) {
     form_set_error('amount', t("You must enter an amount greater than @min", array('@min' => $min)));
   }
 }

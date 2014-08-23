@@ -77,9 +77,9 @@ function ms_unpublish_admin($form, &$form_state) {
   );
 
 
-
   return system_settings_form($form);
 }
+
 //function admin settings
 
 
@@ -106,11 +106,11 @@ function ms_unpublish_load_node_info($vid) {
  */
 function ms_unpublish_insert_node_price($vid, $nid, $price) {
   db_delete('ms_unpublish_price')
-  ->condition('vid', $vid)
-  ->execute();
+    ->condition('vid', $vid)
+    ->execute();
 
   if ($price != '') {
-    $id = db_insert('ms_unpublish_price')
+    db_insert('ms_unpublish_price')
       ->fields(array(
         'vid' => $vid,
         'nid' => $nid,
@@ -141,8 +141,7 @@ function ms_unpublish_node_load($node, $types) {
   $node_info = ms_unpublish_load_node_info($node->vid);
   if (isset($node_info->price)) {
     $node->ms_unpublish_price = $node_info->price;
-  }
-  elseif ($price = variable_get('ms_unpublish_price_' . $node->type, '')) {
+  } elseif ($price = variable_get('ms_unpublish_price_' . $node->type, '')) {
     $node->ms_unpublish_price = $price;
   }
 }
@@ -178,7 +177,7 @@ function ms_unpublish_link($type, $object, $teaser = FALSE) {
   if (user_access('pay to unpublish')) {
     if ($type == 'node' AND $object->ms_unpublish_price != '') {
       if ($object->ms_unpublish_price > 0) {
-        $vars = (object) array('amount' => $object->ms_unpublish_price);
+        $vars = array('amount' => $object->ms_unpublish_price);
         $title = token_replace(variable_get('ms_unpublish_link_text', t('Pay [paymentAmount] to Unpublish')), 'ms_core_payment', $vars);
 
         $links['ms_unpublish_link'] = array(
@@ -281,8 +280,7 @@ function ms_unpublish_add_to_cart($nid, $uid = NULL) {
     ms_core_add_cart_product($product, TRUE);
 
     drupal_goto('ms/cart');
-  }
-  else {
+  } else {
     return t('There was an error');
   }
 }

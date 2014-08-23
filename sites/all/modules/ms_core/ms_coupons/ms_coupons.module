@@ -198,8 +198,7 @@ function ms_coupons_display($view_type = 'active') {
   foreach ($result as $row) {
     if ($row->type == 'percentage') {
       $value = $row->value . '%';
-    }
-    else {
+    } else {
       $value = ms_core_format_money($row->value);
     }
 
@@ -222,12 +221,23 @@ function ms_coupons_display($view_type = 'active') {
   if (count($rows)) {
     $output = theme('table', array('header' => $header, 'rows' => $rows, 'attributes' => array('width' => '100%'), 'empty' => t('No coupons.')));
     $output .= theme('pager', array('tags' => NULL));
-  }
-  else {
+  } else {
     $output = '<p>' . t('There are currently no !type coupons in the system.', array('!type' => $view_type)) . '</p>';
   }
 
   return $output;
+}
+
+/**
+ * Gets all of the possible coupon types.
+ *
+ * @return array
+ */
+function ms_coupons_get_types() {
+  return array(
+    'percentage' => 'Percentage',
+    'fixed' => 'Fixed Value',
+  );
 }
 
 /**
@@ -249,8 +259,7 @@ function ms_coupons_add_form($form, &$form_state, $action, $cid = NULL) {
     $form['#ms_coupons_cid'] = $value->cid;
     $form['#ms_coupons'] = $value;
     $used = $coupon->used;
-  }
-  else {
+  } else {
     $value = new stdClass;
     $value->valid_until = REQUEST_TIME;
     $value->minimum_order = 0;
@@ -309,10 +318,7 @@ function ms_coupons_add_form($form, &$form_state, $action, $cid = NULL) {
     '#type' => 'select',
     '#title' => t('Discount type'),
     '#default_value' => $value->type,
-    '#options' => array(
-      'percentage' => 'Percentage',
-      'fixed' => 'Fixed Value',
-    ),
+    '#options' => ms_coupons_get_types(),
   );
 
   $form['scope'] = array(
@@ -370,11 +376,10 @@ function ms_coupons_add_form($form, &$form_state, $action, $cid = NULL) {
   );
 
   if (isset($value->data['users'])) {
-    foreach ($value->data['users'] as $uid) {
-      $username = $uid ? db_query('SELECT name FROM {users} WHERE uid = :uid', array(':uid' => $uid))->fetchField() : t('anonymous users');
+    foreach ($value->data['users'] as $username) {
       $form['users'][] = array(
         '#type' => 'textfield',
-        '#default_value' => $username . ' [uid:' . $uid . ']',
+        '#default_value' => $username,
         '#autocomplete_path' => 'ms_core/autocomplete/user',
       );
     }
@@ -471,12 +476,6 @@ function ms_coupons_add_form_validate($form, &$form_state) {
       form_set_error('code', t('Coupon code already used by %name.', array('%name' => $coupon->name)));
     }
   }
-
-  foreach ($form_state['values']['users'] as $key => $user) {
-    if ($user && !preg_match('/\[uid:(\d+)\]$/', $user)) {
-      form_set_error('users][' . $key, t('User names must include the user ID.'));
-    }
-  }
 }
 
 /**
@@ -493,10 +492,8 @@ function ms_coupons_add_form_submit($form, &$form_state) {
     $data['max_uses_per_user'] = $form_state['values']['max_uses_per_user'];
   }
 
-  foreach ($form_state['values']['users'] as $key => $user) {
-    if ($user && preg_match('/\[uid:(\d+)\]$/', $user, $matches)) {
-      $data['users'][] = $matches[1];
-    }
+  foreach ($form_state['values']['users'] as $username) {
+    $data['users'][] = $username;
   }
 
   foreach ($form_state['values']['roles'] as $role) {
@@ -513,36 +510,35 @@ function ms_coupons_add_form_submit($form, &$form_state) {
 
   if (!isset($form['#ms_coupons_cid'])) {
     // Only set bulk coupon seed once.
-    $id = db_insert('ms_coupons')
+    db_insert('ms_coupons')
       ->fields(array(
-      'name' => $form_state['values']['name'],
-      'code' => $code,
-      'value' => floatval($form_state['values']['value']),
-      'type' => $form_state['values']['type'],
-      'scope' => $form_state['values']['scope'],
-      'status' => $form_state['values']['status'],
-      'valid_until' => $valid_until,
-      'max_uses' => $form_state['values']['max_uses'],
-      'minimum_order' => $form_state['values']['minimum_order'],
-      'data' => serialize($data),
-    ))
+        'name' => $form_state['values']['name'],
+        'code' => $code,
+        'value' => floatval($form_state['values']['value']),
+        'type' => $form_state['values']['type'],
+        'scope' => $form_state['values']['scope'],
+        'status' => $form_state['values']['status'],
+        'valid_until' => $valid_until,
+        'max_uses' => $form_state['values']['max_uses'],
+        'minimum_order' => $form_state['values']['minimum_order'],
+        'data' => serialize($data),
+      ))
       ->execute();
     drupal_set_message(t('Coupon %name has been created.', array('%name' => $form_state['values']['name'])));
-  }
-  else {
+  } else {
     db_update('ms_coupons')
       ->fields(array(
-      'name' => $form_state['values']['name'],
-      'code' => $code,
-      'value' => floatval($form_state['values']['value']),
-      'type' => $form_state['values']['type'],
-      'scope' => $form_state['values']['scope'],
-      'status' => $form_state['values']['status'],
-      'valid_until' => $valid_until,
-      'max_uses' => $form_state['values']['max_uses'],
-      'minimum_order' => $form_state['values']['minimum_order'],
-      'data' => serialize($data),
-    ))
+        'name' => $form_state['values']['name'],
+        'code' => $code,
+        'value' => floatval($form_state['values']['value']),
+        'type' => $form_state['values']['type'],
+        'scope' => $form_state['values']['scope'],
+        'status' => $form_state['values']['status'],
+        'valid_until' => $valid_until,
+        'max_uses' => $form_state['values']['max_uses'],
+        'minimum_order' => $form_state['values']['minimum_order'],
+        'data' => serialize($data),
+      ))
       ->condition('cid', $form['#ms_coupons_cid'])
       ->execute();
     drupal_set_message(t('Coupon %name has been updated.', array('%name' => $form_state['values']['name'])));
@@ -642,6 +638,7 @@ function ms_coupons_find($code) {
  */
 function ms_coupons_validate($code) {
   global $user;
+  $account = user_load($user->uid);
   $result = new stdClass();
   $result->valid = FALSE;
 
@@ -667,8 +664,8 @@ function ms_coupons_validate($code) {
     // @todo - Fix coupons so that they won't be counted as used unless they have been through checkout, so we need to check the order status.
     $used = db_query("SELECT COUNT(*) FROM {ms_order_adjustments} AS msoa
       LEFT JOIN {ms_orders} AS mso ON msoa.oid = mso.oid
-      WHERE msoa.id LIKE :msoaid% AND mso.uid <> :msouid",
-    array(':msoaid' => 'ms_coupons_' . $coupon->cid, ':msouid' => 0))->fetchField();
+      WHERE msoa.id LIKE :msoaid AND mso.uid <> :msouid",
+      array(':msoaid' => 'ms_coupons_' . $coupon->cid . '%', ':msouid' => 0))->fetchField();
     if ($used >= $coupon->max_uses) {
       $result->message = t('This coupon has reached the maximum redemption limit.');
       return $result;
@@ -676,7 +673,7 @@ function ms_coupons_validate($code) {
   }
 
   // Check the max uses per user.
-  if ($user->uid AND isset($coupon->data['max_uses_per_user'])) {
+  if ($account->uid AND isset($coupon->data['max_uses_per_user'])) {
     $coupon_id = 'ms_coupons_' . $coupon->cid;
     if (!empty($coupon->data['products'])) {
       foreach ($coupon->data['products'] as $product_id) {
@@ -685,8 +682,8 @@ function ms_coupons_validate($code) {
     }
     $used = db_query("SELECT COUNT(*) FROM {ms_order_adjustments} AS msoa
       LEFT JOIN {ms_orders} AS mso ON msoa.oid = mso.oid
-      WHERE msoa.id LIKE :msoaid% AND mso.uid = :msouid",
-      array(':msoaid' => $coupon_id, ':msouid' => $user->uid))->fetchField();
+      WHERE msoa.id LIKE :msoaid AND mso.uid = :msouid",
+      array(':msoaid' => $coupon_id . '%', ':msouid' => $account->uid))->fetchField();
     if ($used >= $coupon->data['max_uses_per_user']) {
       $result->message = t('This coupon has reached the maximum redemption limit.');
       return $result;
@@ -701,7 +698,7 @@ function ms_coupons_validate($code) {
 
   // Check the user id.
   if (isset($coupon->data['users'])) {
-    if (!in_array("$user->uid", $coupon->data['users'], TRUE)) {
+    if (!in_array($account->name, $coupon->data['users'])) {
       $result->message = t('Your user ID is not allowed to use this coupon.');
       return $result;
     }
@@ -711,7 +708,7 @@ function ms_coupons_validate($code) {
   if (isset($coupon->data['roles'])) {
     $role_found = FALSE;
     foreach ($coupon->data['roles'] as $role) {
-      if (in_array($role, $user->roles)) {
+      if (in_array($role, $account->roles)) {
         $role_found = TRUE;
         break;
       }
@@ -726,7 +723,7 @@ function ms_coupons_validate($code) {
   if (isset($coupon->data['products'])) {
     $product_found = FALSE;
     foreach ($coupon->data['products'] as $id) {
-      foreach ($cart->products as $key => $product) {
+      foreach ($cart->products as $product) {
         if ($id == $product->module . '-' . $product->id) {
           $product_found = TRUE;
           break;
@@ -746,8 +743,7 @@ function ms_coupons_validate($code) {
 
   if ($coupon->type == 'percentage') {
     $result->amount = $applicable_total * $coupon->value / 100;
-  }
-  elseif ($coupon->type == 'fixed') {
+  } elseif ($coupon->type == 'fixed') {
     $result->amount = min($applicable_total, $applicable_qty * $coupon->value);
   }
 
@@ -825,6 +821,7 @@ function ms_coupons_add_coupon_to_cart($coupon) {
   $adjustment->scope = $coupon->scope;
   $adjustment->value = -$coupon->value;
   $adjustment->optional = TRUE;
+  $adjustment->data = $coupon->data;
 
   // @todo - Add an adjustment for each product in the cart that matches,
   // instead of just the first one.
@@ -837,8 +834,8 @@ function ms_coupons_add_coupon_to_cart($coupon) {
   if (!empty($coupon->data['products'])) {
     $cart = ms_core_get_cart();
     foreach ($coupon->data['products'] as $id) {
-      foreach ($cart->products as $key => $product) {
-        if ($id == $product->module .'-'. $product->id) {
+      foreach ($cart->products as $product) {
+        if ($id == $product->module . '-' . $product->id) {
           $adjustment->id .= '-' . $id;
           $adjustment->product_id = $product->cart_product_id;
           break 2;

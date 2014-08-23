@@ -4,6 +4,11 @@
  * @file
  * MoneyScripts WorldPay Gateway
  *
+ * @todo Look into integrating FuturePay Limited Agreements, for Tokenisation
+ *   features and more flexibility.
+ *    -http://www.worldpay.com/support/kb/bg/htmlredirect/rhtml5904.html
+ *    -http://www.worldpay.com/support/kb/bg/recurringpayments/rpfp.html
+ *
  * Copyright 2008-2013 MoneyScripts.net - Leighton Whiting
  */
 
@@ -24,25 +29,6 @@ function ms_worldpay_help($path, $arg) {
 }
 
 /**
- * Access callback that will always return true
- */
-function ms_worldpay_access_test() {
-  return TRUE;
-}
-
-/**
- * Checks if a user has access to cancel an order
- */
-function ms_worldpay_cancel_test($oid) {
-  global $user;
-  $order = ms_core_order_load($oid);
-  if ($user->uid == $order->uid OR user_access('administer moneyscripts orders')) {
-    return TRUE;
-  }
-  return FALSE;
-}
-
-/**
  * Implements hook_menu().
  */
 function ms_worldpay_menu() {
@@ -50,20 +36,20 @@ function ms_worldpay_menu() {
   $items['ms/checkout/worldpay'] = array(
     'title' => 'Checkout',
     'page callback' => 'ms_worldpay_initiate_payment',
-    'access callback' => 'ms_worldpay_access_test',
+    'access callback' => TRUE,
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
   );
   $items['ms_worldpay/backend'] = array(
     'title' => 'Backend',
     'page callback' => 'ms_worldpay_backend_page',
-    'access callback' => 'ms_worldpay_access_test',
+    'access callback' => TRUE,
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
   );
   $items['ms_worldpay/cancel/%'] = array(
     'title' => 'Cancel Payments',
     'page callback' => 'ms_worldpay_cancel_page',
     'page arguments' => array(2),
-    'access callback' => 'ms_worldpay_cancel_test',
+    'access callback' => 'ms_core_cancel_test',
     'access arguments' => array(2),
     'type' => MENU_CALLBACK,
   );
@@ -223,10 +209,9 @@ function ms_worldpay_cancel_page_confirm_submit($form, &$form_state) {
     // Generate a Unique Transaction ID
     $payment->transaction = ms_core_generate_transaction_id(10);
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $subscription_id;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
   }
   else {
     // Log the error
@@ -252,7 +237,7 @@ function ms_worldpay_backend_page() {
     return;
   }
 
-  if (FALSE AND $secret = variable_get('ms_worldpay_md5_secret', '')) {
+  if (FALSE AND $secret = variable_get('ms_worldpay_md5_secret', '')) { // @todo - Re-test this. Verify the md5 and the order amount.
     if (isset($_POST['key'])) {
       $key = $_POST['key'];
       $valid = md5($secret . $_POST['sid'] . $_POST['merchant_order_id'] . $_POST['total']);
@@ -279,7 +264,6 @@ function ms_worldpay_backend_page() {
   $payment->transaction = $_POST['transId'];
   $payment->recurring_id = isset($_POST['futurePayId']) ? $_POST['futurePayId'] : '';
   $payment->data = $_POST;
-  $payment->recurring_schedule = $order->recurring_schedule;
 
   // Update the address
   $payment->billing_address = array(
@@ -308,11 +292,11 @@ function ms_worldpay_backend_page() {
           $amount = $payment->amount;
           $payment->amount = $amount;
           $payment->type = 'rec_signup';
-          ms_core_enter_payment($payment, FALSE);
+          ms_core_enter_payment($payment);
           break;
         case 'cart':
           $payment->type = 'cart';
-          ms_core_enter_payment($payment, FALSE);
+          ms_core_enter_payment($payment);
           break;
       }
       ms_core_add_history_item($order, 0, t('A payment has been accepted.'), TRUE);
@@ -323,7 +307,7 @@ function ms_worldpay_backend_page() {
       // Add the Payment to the Order
       drupal_set_message(t('Your payment has failed.'));
       $payment->type = 'failed';
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
       break;
 
     case 'C':
@@ -331,7 +315,7 @@ function ms_worldpay_backend_page() {
       // Add the Payment to the Order
       drupal_set_message(t('Your payment has been Cancelled.'));
       $payment->type = 'rec_cancel';
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
       break;
 
     default:
@@ -484,7 +468,7 @@ function ms_worldpay_initiate_payment() {
   // Set the order status
   ms_core_set_order_status($order, 'pending');
 
-  $timeout = variable_get('ms_paypal_wps_paypal_page_timeout', 0) * 1000;
+  $timeout = variable_get('ms_worldpay_jump_page_timeout', 0) * 1000;
   $js = "
   (function ($) {
     window.setTimeout(function() {

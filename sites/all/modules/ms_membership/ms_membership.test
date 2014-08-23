@@ -1,12 +1,17 @@
 <?php
+
 /**
  * @file
  * Test ajax example module.
  */
-class MsMembershipTestCase extends DrupalWebTestCase {
+class MsMembershipTestCase extends DrupalWebTestCase
+{
   protected $admin_user;
   protected $regular_user;
 
+  /**
+   * @return array
+   */
   public static function getInfo() {
     return array(
       'name' => 'Membership Suite',
@@ -23,7 +28,7 @@ class MsMembershipTestCase extends DrupalWebTestCase {
     parent::setUp('ms_membership');
 
     // Create our users
-    $this->admin_user = $this->drupalCreateUser(
+    $this->admin_user = (object)$this->drupalCreateUser(
       array(
         'administer ms_membership plans',
         'administer ms_membership purchases',
@@ -42,6 +47,7 @@ class MsMembershipTestCase extends DrupalWebTestCase {
       )
     );
     // Login the admin
+    /** @noinspection PhpParamsInspection */
     $this->drupalLogin($this->admin_user);
 
     // Save the settings
@@ -168,7 +174,7 @@ class MsMembershipTestCase extends DrupalWebTestCase {
     $this->assertTrue(!in_array('administrator', array_values($account->roles)), 'The role was removed successfully.');
   }
 
-// @fixme - Test adding membership
+// @todo - Test adding membership
 
   /**
    * Check various pages in the module for errors
@@ -181,8 +187,6 @@ class MsMembershipTestCase extends DrupalWebTestCase {
   }
 
   function importMembershipPlans() {
-    $export = array();
-
     $ms_products_plan = new MsProductsPlan();
     $ms_products_plan->disabled = FALSE;
     $ms_products_plan->api_version = 1;

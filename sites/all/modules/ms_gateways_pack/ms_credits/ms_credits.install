@@ -28,7 +28,6 @@ function ms_credits_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'uid' => array(
         'description' => t('The user id'),

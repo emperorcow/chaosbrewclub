@@ -20,6 +20,7 @@ function ms_products_schema() {
       'key' => 'sku',
       'key name' => 'Machine Name',
       'admin_title' => 'name',
+      'primary key' => 'pid',
       'admin_description' => 'description',
       'identifier' => 'ms_products_plan',
       'default hook' => 'default_ms_products_plan',
@@ -40,7 +41,6 @@ function ms_products_schema() {
         'type' => 'serial',
         'description' => 'The unique product ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
         'no export' => TRUE,
       ),
       'bundle' => array(
@@ -127,13 +127,11 @@ function ms_products_schema() {
         'type' => 'int',
         'description' => 'How many days before the membership Expires to send the email',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'weight' => array(
         'type' => 'int',
         'description' => 'Weight',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'recurring_schedule' => array(
@@ -181,19 +179,16 @@ function ms_products_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'oid' => array(
         'type' => 'int',
         'description' => 'The unique order ID',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'uid' => array(
         'type' => 'int',
         'description' => 'The uid of the user making the record',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'bundle' => array(
         'type' => 'varchar',
@@ -209,6 +204,12 @@ function ms_products_schema() {
         'not null' => TRUE,
         'default' => '',
       ),
+      'pid' => array(
+        'type' => 'int',
+        'description' => 'The unique product ID (primary)',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
       'status' => array(
         'type' => 'varchar',
         'description' => 'The Status of the Purchase',
@@ -218,28 +219,24 @@ function ms_products_schema() {
         'type' => 'int',
         'description' => 'The Expiration of the Purchase',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'start_date' => array(
         'type' => 'int',
         'description' => 'Start Date for the Purchase',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'current_payments' => array(
         'type' => 'int',
         'description' => 'The current number of payments made',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'max_payments' => array(
         'type' => 'int',
         'description' => 'The max number of payments for the Purchase',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'data' => array(
@@ -258,7 +255,6 @@ function ms_products_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'sku' => array(
         'type' => 'varchar',
@@ -302,14 +298,12 @@ function ms_products_schema() {
         'type' => 'int',
         'description' => 'Whether or not users are required to purchase the option.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 1,
       ),
       'default_value' => array(
         'type' => 'int',
         'description' => 'Whether or not the option is selected by default.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 1,
       ),
       'amount' => array(
@@ -324,7 +318,6 @@ function ms_products_schema() {
         'type' => 'int',
         'description' => 'How long until the option expires.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
     ),
@@ -338,13 +331,11 @@ function ms_products_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'pid' => array(
         'type' => 'int',
         'description' => 'The ID of the purchase.',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'name' => array(
         'type' => 'varchar',
@@ -369,7 +360,6 @@ function ms_products_schema() {
         'type' => 'int',
         'description' => 'How long until the option expires.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
     ),
@@ -434,9 +424,9 @@ function ms_products_update_7301(&$sandbox) {
     $plan->deny_roles = array();
     db_update('ms_products_plans')
       ->fields(array(
-          'allow_roles' => serialize($plan->allow_roles),
-          'deny_roles' => serialize($plan->deny_roles),
-        ))
+        'allow_roles' => serialize($plan->allow_roles),
+        'deny_roles' => serialize($plan->deny_roles),
+      ))
       ->condition('pid', $plan->pid)
       ->execute();
   }
@@ -456,12 +446,12 @@ function ms_products_update_7302(&$sandbox) {
     $plan->data = _ms_products_unserialize($plan->data);
     db_update('ms_products_plans')
       ->fields(array(
-          'allow_roles' => serialize($plan->allow_roles),
-          'deny_roles' => serialize($plan->deny_roles),
-          'modify_options' => serialize($plan->modify_options),
-          'recurring_schedule' => serialize($plan->recurring_schedule),
-          'data' => serialize($plan->data),
-        ))
+        'allow_roles' => serialize($plan->allow_roles),
+        'deny_roles' => serialize($plan->deny_roles),
+        'modify_options' => serialize($plan->modify_options),
+        'recurring_schedule' => serialize($plan->recurring_schedule),
+        'data' => serialize($plan->data),
+      ))
       ->condition('pid', $plan->pid)
       ->execute();
   }
@@ -478,19 +468,16 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'oid' => array(
         'type' => 'int',
         'description' => 'The unique order ID',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'uid' => array(
         'type' => 'int',
         'description' => 'The uid of the user making the record',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'bundle' => array(
         'type' => 'varchar',
@@ -515,28 +502,24 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'int',
         'description' => 'The Expiration of the Purchase',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'start_date' => array(
         'type' => 'int',
         'description' => 'Start Date for the Purchase',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'current_payments' => array(
         'type' => 'int',
         'description' => 'The current number of payments made',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'max_payments' => array(
         'type' => 'int',
         'description' => 'The max number of payments for the Purchase',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'data' => array(
@@ -608,7 +591,6 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'sku' => array(
         'type' => 'varchar',
@@ -638,14 +620,12 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'int',
         'description' => 'Whether or not users are required to purchase the option.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 1,
       ),
       'default_value' => array(
         'type' => 'int',
         'description' => 'Whether or not the option is selected by default.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 1,
       ),
       'amount' => array(
@@ -660,7 +640,6 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'int',
         'description' => 'How long until the option expires.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
     ),
@@ -674,13 +653,11 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'pid' => array(
         'type' => 'int',
         'description' => 'The ID of the purchase.',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'name' => array(
         'type' => 'varchar',
@@ -698,7 +675,6 @@ function ms_products_update_7304(&$sandbox) {
         'type' => 'int',
         'description' => 'How long until the option expires.',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
     ),
@@ -729,7 +705,7 @@ function ms_products_update_7304(&$sandbox) {
 
   $skus = array();
   module_load_include('inc', 'ms_products', 'ms_products.plans');
-  foreach (ms_products_get_plans() as $sku => $plan) {
+  foreach (ms_products_get_plans() as $plan) {
     $skus[$plan->pid] = $plan->sku;
     ms_core_product_id_change($plan->bundle . '-' . $plan->pid, $plan->bundle . '-' . $plan->sku);
     if (module_exists('i18n_string')) {
@@ -740,7 +716,10 @@ function ms_products_update_7304(&$sandbox) {
 
   // Migrate rules from pid to sku.
   if (module_exists('rules')) {
-    _ms_products_migrate_rules($skus);
+    // It's too hard to migrate rules because of dependencies, so just have
+    // users manually migrate rules if there are any.
+    // Unfortunately this can't be helped.
+    //_ms_products_migrate_rules($skus);
   }
 
   // Clear the schema cache.
@@ -762,8 +741,8 @@ function ms_products_update_7305(&$sandbox) {
     );
     db_update('ms_products_plans')
       ->fields(array(
-          'modify_options' => serialize($plan->modify_options),
-        ))
+        'modify_options' => serialize($plan->modify_options),
+      ))
       ->condition('pid', $plan->pid)
       ->execute();
   }
@@ -780,7 +759,7 @@ function _ms_products_migrate_rules($skus) {
     'pid' => 'sku',
   );
 
-  $rules = rules_config_load_multiple(FALSE);
+  $rules = rules_config_load_multiple();
 
   foreach ($rules as $rule) {
     $export_string = $rule->export();
@@ -815,7 +794,7 @@ function _ms_products_migrate_rules($skus) {
  * Attempts to fully unserialize a string that may have been serialized multiple times.
  */
 function _ms_products_unserialize($object) {
-  for($i = 0; $i < 6; $i++) {
+  for ($i = 0; $i < 6; $i++) {
     if (is_array($object)) {
       return $object;
     }
@@ -869,4 +848,37 @@ function ms_products_update_7306(&$sandbox) {
   }
 
   return t('Successfully added fields for configurable plan options.');
+}
+
+/**
+ * Add new pid field for Purchases.
+ */
+function ms_products_update_7307(&$sandbox) {
+  if (db_field_exists('ms_products_purchases', 'pid')) {
+    db_drop_field('ms_products_purchases', 'pid');
+  }
+  if (!db_field_exists('ms_products_purchases', 'pid')) {
+    db_add_field('ms_products_purchases', 'pid', array(
+      'type' => 'int',
+      'description' => 'The unique product ID (primary)',
+      'not null' => TRUE,
+      'default' => 0,
+    ));
+  }
+
+  // Populate the existing purchases.
+  $result = db_query("SELECT * FROM {ms_products_purchases}");
+  foreach ($result as $purchase) {
+    $plan = ms_products_plan_load($purchase->sku);
+    if ($plan) {
+      db_update('ms_products_purchases')
+        ->fields(array(
+          'pid' => $plan->pid,
+        ))
+        ->condition('id', $purchase->id)
+        ->execute();
+    }
+  }
+
+  return t('Successfully added pid field for purchases.');
 }

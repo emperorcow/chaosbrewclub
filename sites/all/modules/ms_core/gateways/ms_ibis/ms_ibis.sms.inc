@@ -30,31 +30,30 @@ function ms_ibis_process_sms(MsOrder $order) {
   if (substr($resp, 0, 14) == "TRANSACTION_ID") {
     $trans_id = substr($resp, 16, 28);
     $url = $ecomm_client_url . '?trans_id=' . urlencode($trans_id) . '&ibis_order_id=' . $ibis_order_id;
-    $result = db_insert('ms_ibis_transaction')
-    ->fields(array(
-      'trans_id' => $trans_id,
-      'amount' => $amount,
-      'currency' => $currency,
-      'client_ip_addr' => $ip,
-      'order_id' => $ibis_order_id,
-      'description' => t('Order #!order payment', array('!order' => check_plain($order->order_number))),
-      'language' => $lang,
-      't_date' => REQUEST_TIME,
-      'response' => $resp,
-    ))
-    ->execute();
+    db_insert('ms_ibis_transaction')
+      ->fields(array(
+        'trans_id' => $trans_id,
+        'amount' => $amount,
+        'currency' => $currency,
+        'client_ip_addr' => $ip,
+        'order_id' => $ibis_order_id,
+        'description' => t('Order #!order payment', array('!order' => check_plain($order->order_number))),
+        'language' => $lang,
+        't_date' => REQUEST_TIME,
+        'response' => $resp,
+      ))
+      ->execute();
 
     drupal_goto($url);
-  }
-  else {
+  } else {
     ms_core_log('ms_ibis', 'SMS payment make failed: !result', array('!result' => $resp));
-    $result = db_insert('ms_ibis_error')
-    ->fields(array(
-      'error_time' => REQUEST_TIME,
-      'action' => 'startSMStrans',
-      'response' => $resp,
-    ))
-    ->execute();
+    db_insert('ms_ibis_error')
+      ->fields(array(
+        'error_time' => REQUEST_TIME,
+        'action' => 'startSMStrans',
+        'response' => $resp,
+      ))
+      ->execute();
     drupal_set_message(check_plain(t('Technical error occurred! Please contact merchant!')));
     drupal_goto();
   }

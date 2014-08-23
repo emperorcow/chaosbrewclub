@@ -58,7 +58,7 @@ function ms_googleanalytics_menu() {
  */
 function ms_googleanalytics_ms_core_overrides() {
   return array(
-    'ms_core' => array(
+    'ms_googleanalytics' => array(
       'title' => t('MS Google Analytics'),
       'form' => 'ms_googleanalytics_admin',
     ),

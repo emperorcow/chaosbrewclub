@@ -119,7 +119,7 @@ function ms_cres_menu() {
  */
 function ms_cres_cron() {
   // Process payments that need to be processed
-  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE gateway = :gateway AND status = :status AND next_payment <> :next_payment AND next_payment < :next_payment", array(':gateway' => 'ms_cres', ':status' => 'active', ':next_payment' => 0, ':next_payment' => REQUEST_TIME));
+  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE gateway = :gateway AND status = :status AND next_payment <> :zero AND next_payment < :next_payment", array(':gateway' => 'ms_cres', ':status' => 'active', ':zero' => 0, ':next_payment' => REQUEST_TIME));
 
   // Add a counter so that only a certain number of payments are processed each cron run
   $count = 0;
@@ -141,14 +141,13 @@ function ms_cres_cron() {
 
       if ($response['approved']) {
         ms_core_log('ms_cres', 'Processing Recurring Charge for Order #!num. Here are the details: @message',
-            array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
+          array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
         // Insert the rec_payment Payment to the database
         $payment = ms_core_new_payment($order->oid, 'ms_cres', 'rec_payment');
         $payment->transaction = $response['data']['TxnGUID'];
         $payment->amount = $recurring_schedule->main_amount;
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Update the address
         $payment->billing_address = array(
@@ -165,16 +164,15 @@ function ms_cres_cron() {
         $payment->last_name = $payment_profile->last_name;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Check if the recurring_schedule is done, send rec_eot
         if ($recurring_schedule->total_occurrences != 0 AND $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
           $payment->type = 'rec_eot';
           $payment->amount = 0;
-          ms_core_enter_payment($payment, FALSE);
+          ms_core_enter_payment($payment);
         }
-      }
-      else {
+      } else {
         // Log the error
         ms_core_log_error('ms_cres', 'Error Processing Charge: @message',
           array('@message' => $response['message']));
@@ -186,7 +184,6 @@ function ms_cres_cron() {
           $payment->transaction = drupal_get_token(serialize($order));
           $payment->currency = $order->currency;
           $payment->data = $response;
-          $payment->recurring_schedule = $order->recurring_schedule;
 
           // Update the address
           $payment->billing_address = array(
@@ -203,9 +200,8 @@ function ms_cres_cron() {
           $payment->last_name = $payment_profile->last_name;
 
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, FALSE);
-        }
-        else {
+          ms_core_enter_payment($payment);
+        } else {
           // Email the User with the error details and instruct them to update their card
           if (variable_get('ms_cres_billing_error_body', '')) {
             $vars = array(
@@ -217,22 +213,21 @@ function ms_cres_cron() {
           // Mark the recurring_schedule next_payment date in 3 days
           db_update('ms_recurring_schedules')
             ->fields(array(
-            'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
-          ))
+              'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
+            ))
             ->condition('id', $recurring_schedule->id)
             ->execute();
 
           // Increment the Failed Payments counter
           db_update('ms_recurring_schedules')
             ->fields(array(
-            'failed_payments' => $recurring_schedule->failed_payments + 1,
-          ))
+              'failed_payments' => $recurring_schedule->failed_payments + 1,
+            ))
             ->condition('id', $recurring_schedule->id)
             ->execute();
         }
       }
-    }
-    else {
+    } else {
       // Log the error
       ms_core_log_error('ms_cres', 'Error Loading Payment Profile for Recurring Payment: @message',
         array('@message' => ms_core_print_r($recurring_schedule)));
@@ -248,36 +243,35 @@ function ms_cres_cron() {
       // Mark the recurring_schedule next_payment date in 3 days
       db_update('ms_recurring_schedules')
         ->fields(array(
-        'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
-      ))
+          'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
+        ))
         ->condition('id', $recurring_schedule->id)
         ->execute();
 
       // Increment the Failed Payments counter
       db_update('ms_recurring_schedules')
         ->fields(array(
-        'failed_payments' => $recurring_schedule->failed_payments + 1,
-      ))
+          'failed_payments' => $recurring_schedule->failed_payments + 1,
+        ))
         ->condition('id', $recurring_schedule->id)
         ->execute();
     }
   }
 
   // Check for cards that are expiring soon, and send a notice to the user to change them
-  $frequency = (int) variable_get('ms_cres_expiration_reminder_frequency', 3);
+  $frequency = (int)variable_get('ms_cres_expiration_reminder_frequency', 3);
   if (variable_get('ms_cres_last_expiration_reminder', 0) < (REQUEST_TIME - (86400 * $frequency)) AND variable_get('ms_cres_expiration_reminder_body', '')) {
     variable_set('ms_cres_last_expiration_reminder', REQUEST_TIME);
 
-    $month = (int) date('n');
-    $year = (int) date('y');
-    $threshold = (int) variable_get('ms_cres_expiration_reminder_months', 1);
+    $month = (int)date('n');
+    $year = (int)date('y');
+    $threshold = (int)variable_get('ms_cres_expiration_reminder_months', 1);
 
     // Set the month and year variables
     if ($month <= $threshold) {
       $month = (12 - $threshold) + $month;
       $year -= 1;
-    }
-    else {
+    } else {
       $month -= $threshold;
     }
 
@@ -549,16 +543,16 @@ function ms_cres_set_default_payment_profile($payment_profile) {
   // First, set all profiles as 0
   db_update('ms_cres_payment_profiles')
     ->fields(array(
-    'is_default' => 0,
-  ))
+      'is_default' => 0,
+    ))
     ->condition('uid', $payment_profile->uid)
     ->execute();
 
   // Next, set the profile with $id to 1
   db_update('ms_cres_payment_profiles')
     ->fields(array(
-    'is_default' => 1,
-  ))
+      'is_default' => 1,
+    ))
     ->condition('id', $payment_profile->id)
     ->execute();
 
@@ -631,8 +625,7 @@ function ms_cres_ms_core_modification_charge($amount, $order) {
 
   if ($response['approved']) {
     return TRUE;
-  }
-  else {
+  } else {
     // Log the error
     ms_core_log_error('ms_cres', 'Error Processing Charge: @message',
       array('@message' => $response['message']));
@@ -670,8 +663,7 @@ function ms_cres_ms_core_billing_info_alter(&$html, $account) {
         $actions[] = l(t('Make Default'), "ms_cres/set_default_card/" . $row->id, array('query' => drupal_get_destination()));
         $actions[] = ' ' . l(t('Delete'), "ms_cres/remove_card/" . $row->id, array('query' => drupal_get_destination()));
         $status = t('Backup');
-      }
-      else {
+      } else {
         $status = t('Default');
       }
 
@@ -702,7 +694,7 @@ function ms_cres_remove_card_confirm($form, &$form_state, $id) {
   $payment_profile = ms_cres_get_payment_profile($id);
   $form['#ms_cres_payment_id'] = $payment_profile->id;
   return confirm_form($form, t('Are you sure you want to delete the saved payment method: @card?',
-    array('@card' => $payment_profile->card_type . ' - ' . $payment_profile->card_number)),
+      array('@card' => $payment_profile->card_type . ' - ' . $payment_profile->card_number)),
     '', t('This action cannot be undone.'), t('Confirm'));
 }
 
@@ -724,7 +716,7 @@ function ms_cres_set_default_card_confirm($form, &$form_state, $id) {
   $payment_profile = ms_cres_get_payment_profile($id);
   $form['#ms_cres_payment_id'] = $payment_profile->id;
   return confirm_form($form, t('Are you sure you want to set @card as the default payment method?',
-    array('@card' => $payment_profile->card_type . ' - ' . $payment_profile->card_number)),
+      array('@card' => $payment_profile->card_type . ' - ' . $payment_profile->card_number)),
     '', t('Future payments will be charged to this account.'), t('Confirm'));
 }
 
@@ -763,8 +755,7 @@ function ms_cres_checkout() {
   $use_new = FALSE;
   if (arg(3) == 'new') {
     $use_new = TRUE;
-  }
-  elseif ($order->status != 'checkout') {
+  } elseif ($order->status != 'checkout') {
     // The order is not in checkout and shouldn't be here
     return t('This order has already been through Checkout.');
   }
@@ -773,8 +764,7 @@ function ms_cres_checkout() {
   if (!$use_new AND $user->uid AND $payment_profile = ms_cres_get_default_payment_profile($user->uid)) {
     // Show the form to use the saved profile
     $build['content'] = drupal_get_form('ms_cres_token_checkout_form', $user, $order);
-  }
-  else {
+  } else {
     // Get the Payment Form
     $build['content'] = drupal_get_form('ms_cres_checkout_form', $order);
   }
@@ -950,7 +940,6 @@ function ms_cres_change_form_field_name(&$form, $f0, $f1, $f2) {
  * Redirect to CRE Secure to let the user add a card
  */
 function ms_cres_add_card_jump_page($account) {
-  global $user;
   $build = array();
   $build['content']['ms_cres_add_card_header']['#markup'] = t('Please fill out the form below to add a new payment method.');
   $build['content']['ms_cres_add_card_form'] = drupal_get_form('ms_cres_add_card_jump_page_form', $account);
@@ -969,7 +958,7 @@ function ms_cres_add_card_jump_page_form($form, &$form_state, $account) {
   $form['#action'] = $url;
   $form['#id'] = 'cre-secure-jump';
 
-  $order = new stdClass();
+  $order = ms_core_order_new();
   $order->uid = $account->uid;
   $order->email_address = $account->mail;
 
@@ -1097,7 +1086,6 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
   $form_values = $form_state['values'];
 
   $order = ms_core_order_load($form_values['ms_oid']);
-  $account = user_load($order->uid);
   $payment_profile = ms_cres_get_payment_profile($form_values['payment_id']);
 
   switch ($order->order_type) {
@@ -1112,7 +1100,6 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
         $payment->transaction = drupal_get_token(serialize($order));
         $payment->currency = $order->currency;
         $payment->data = $payment_profile;
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Update the address
         $payment->billing_address = array(
@@ -1130,13 +1117,12 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
         $payment->recurring_id = "ms_cres-" . $order->oid;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Add the payment to the order
         $form_state['values']['ms_oid'] = $order->oid;
         $form_state['values']['ms_order_charged'] = TRUE;
-      }
-      else {
+      } else {
         // Check if there is a trial
         $amount = ($order->recurring_schedule['trial_length']) ? $order->recurring_schedule['trial_amount'] : $order->recurring_schedule['main_amount'];
 
@@ -1153,7 +1139,6 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
           $payment->transaction = $response['data']['TxnGUID'];
           $payment->currency = $order->currency;
           $payment->data = $response['data'];
-          $payment->recurring_schedule = $order->recurring_schedule;
 
           // Update the address
           $payment->billing_address = array(
@@ -1172,9 +1157,8 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
 
           // Add the Payment to the Order
           $payment->amount = $amount;
-          ms_core_enter_payment($payment, FALSE);
-        }
-        else {
+          ms_core_enter_payment($payment);
+        } else {
           // Log the error
           $form_state['values']['ms_order_charged'] = FALSE;
           ms_core_log_error('ms_cres', 'Error Processing Charge: @message', array('@message' => $response['message']));
@@ -1196,7 +1180,6 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
         $payment->amount = $order->amount;
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Update the address
         $payment->billing_address = array(
@@ -1213,9 +1196,8 @@ function ms_cres_token_checkout_form_validate($form, &$form_state) {
         $payment->last_name = $payment_profile->last_name;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
-      }
-      else {
+        ms_core_enter_payment($payment);
+      } else {
         $form_state['values']['ms_order_charged'] = FALSE;
         form_set_error('payment_id', t('Error: @message', array('@message' => $response['message'])));
       }
@@ -1232,8 +1214,7 @@ function ms_cres_token_checkout_form_submit($form, &$form_state) {
   // If the Order was charged, complete it
   if (!empty($v['ms_order_charged'])) {
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -1247,26 +1228,29 @@ function ms_cres_token_checkout_form_submit($form, &$form_state) {
  * Handle Mail functions
  */
 function ms_cres_mail($key, &$message, $seed_vars) {
+  $subject = "";
+  $body = "";
+  $tokens = array();
   switch ($key) {
     case 'expirationReminder':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
+      $tokens['payment_profile'] = $seed_vars['payment_profile'];
+      $tokens['account'] = user_load($tokens['payment_profile']->uid);
 
       $subject = variable_get('ms_cres_expiration_reminder_subject', '');
       $body = variable_get('ms_cres_expiration_reminder_body', '');
       break;
 
     case 'card_update_confirm':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
+      $tokens['payment_profile'] = $seed_vars['payment_profile'];
+      $tokens['account'] = user_load($tokens['payment_profile']->uid);
 
       $subject = variable_get('ms_cres_card_update_confirm_subject', '');
       $body = variable_get('ms_cres_card_update_confirm_body', '');
       break;
 
     case 'billing_error':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
+      $tokens['payment_profile'] = $seed_vars['payment_profile'];
+      $tokens['account'] = user_load($tokens['payment_profile']->uid);
 
       $subject = variable_get('ms_cres_billing_error_subject', '');
       $body = variable_get('ms_cres_billing_error_body', '');
@@ -1274,16 +1258,8 @@ function ms_cres_mail($key, &$message, $seed_vars) {
   }
 
   // Replace the Tokens
-  $message['subject'] = token_replace($subject,
-    array(
-    'ms_cres_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
-  $message['body'][] = token_replace($body,
-    array(
-    'ms_cres_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
+  $message['subject'] = token_replace($subject, $tokens);
+  $message['body'][] = token_replace($body, $tokens);
 }
 
 // ======================================
@@ -1425,8 +1401,8 @@ function ms_cres_card_added_page() {
   // Check to make sure this is a valid request
   if (!isset($_SESSION['ms_cres_adding_card'])) {
     drupal_set_title(t('Error'));
-    return t('Error, account mismatch.');
     ms_core_log_error('ms_cres', t('Error, account mismatch.'));
+    return t('Error, account mismatch.');
   }
 
   $account = user_load($_SESSION['ms_cres_adding_card']);
@@ -1457,18 +1433,17 @@ function ms_cres_card_added_page() {
     );
 
     // Create a new Payment Profile
-    $payment_result = ms_cres_create_payment_profile($account->uid, $address, $cc_num, $cc_type, $month, $year, $token);
+    ms_cres_create_payment_profile($account->uid, $address, $cc_num, $cc_type, $month, $year, $token);
 
     // Set a message
     drupal_set_message(t('Your payment information has been updated.'));
 
     // Go to the user account page
     drupal_goto('user');
-  }
-  else {
+  } else {
     // The payment didn't pass validation, so we show an error message
     drupal_set_message(t('The payment did not pass validation. The message returned was: @message. The error has been logged. Please contact us for more help.',
-     array('@message' => $valid_payment['message'])));
+      array('@message' => $valid_payment['message'])));
 
     // Go to the user account page
     drupal_goto('user');
@@ -1492,8 +1467,7 @@ function ms_cres_thankyou_page() {
   // Validate the payment
   if (isset($_GET['CRE_Tokenize'])) {
     $valid_payment = ms_cres_validate_added_card($_GET);
-  }
-  else {
+  } else {
     $valid_payment = ms_cres_validate_payment($order, $_GET);
   }
 
@@ -1511,7 +1485,6 @@ function ms_cres_thankyou_page() {
     $payment->currency = $order->currency;
     $payment->recurring_id = "ms_cres-" . $order->oid;
     $payment->data = $data;
-    $payment->recurring_schedule = $order->recurring_schedule;
 
     // Update the address
     $payment->billing_address = array(
@@ -1532,7 +1505,7 @@ function ms_cres_thankyou_page() {
         $payment->amount = 0;
 
         // Add the Signup Payment
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'cart':
@@ -1561,7 +1534,7 @@ function ms_cres_thankyou_page() {
       );
 
       $token = $data['CRE_Card_Token'];
-      $payment_result = ms_cres_create_payment_profile($account->uid, $address, $cc_num, $cc_type, $month, $year, $token);
+      ms_cres_create_payment_profile($account->uid, $address, $cc_num, $cc_type, $month, $year, $token);
 
       // Also need to charge the payment here, since the payment won't be charged if using Tokenization
       if ($payment_profile = ms_cres_get_default_payment_profile($order->uid)) {
@@ -1573,8 +1546,7 @@ function ms_cres_thankyou_page() {
           if ($order->recurring_schedule['trial_length'] AND !$order->recurring_schedule['trial_amount']) {
             // If there is a free trial, then go straight to the thank-you page
             drupal_goto('ms/thankyou');
-          }
-          else {
+          } else {
             // Otherwise, set the amount to the trial amount if applicable
             $amount = ($order->recurring_schedule['trial_length']) ? $order->recurring_schedule['trial_amount'] : $order->recurring_schedule['main_amount'];
           }
@@ -1598,21 +1570,19 @@ function ms_cres_thankyou_page() {
             array('!details' => ms_core_print_r($response)));
 
           ms_core_enter_payment($payment);
-        }
-        elseif ($order->order_type == 'recurring') {
+        } elseif ($order->order_type == 'recurring') {
           $payment->type = 'rec_payment';
           $payment->amount = $amount;
 
           // Add the Payment
-          ms_core_enter_payment($payment, FALSE);
+          ms_core_enter_payment($payment);
         }
       }
     }
 
     // Go to the thank you page
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // The payment didn't pass validation, so we show an error message
     drupal_set_title(t('Error'));
 
@@ -1646,8 +1616,7 @@ function ms_cres_template_page() {
       // Remove the cached user id so it can't be used as a security loophole
       cache_clear_all($_GET['ms_cres_sess'], 'cache');
     }
-  }
-  else {
+  } else {
     // Make sure there is no user logged in
     $user = user_load(0);
   }
@@ -1694,23 +1663,20 @@ function ms_cres_charge($order, $amount, $payment_profile) {
     ms_core_log_error('ms_cres', "Transaction timed out or no response received.");
     $return['approved'] = FALSE;
     $return['message'] = t('Transaction timed out or no response received.');
-  }
-  else {
+  } else {
     // Determine if the transaction was a success
     if (isset($response['code'])) {
       if ($response['code'] == '000') {
         $return['approved'] = TRUE;
         $return['data'] = $response;
-      }
-      else {
+      } else {
         ms_core_log_error('ms_cres', "Error %reasoncode: %reasondesc",
           array('%reasoncode' => $response['code'], '%reasondesc' => $response['message']));
         $return['approved'] = FALSE;
         $return['message'] = t("%reasoncode - %reasondesc",
           array('%reasoncode' => $response['code'], '%reasondesc' => $response['message']));
       }
-    }
-    else {
+    } else {
       ms_core_log_error('ms_cres', "Unknown Error: %response",
         array('%response' => ms_core_print_r($response)));
       $return['approved'] = FALSE;
@@ -1738,8 +1704,7 @@ function ms_cres_validate_payment($order, $params) {
     ms_core_log_error('ms_cres', "Transaction timed out or no response received.");
     $return['approved'] = FALSE;
     $return['message'] = t('Transaction timed out or no response received.');
-  }
-  else {
+  } else {
     if ($response['status'] == 'success') {
       $params_clean = array();
       foreach ($_GET as $key => $value) {
@@ -1750,8 +1715,7 @@ function ms_cres_validate_payment($order, $params) {
       $return['approved'] = TRUE;
       $return['data'] = $response;
       $return['params'] = $params_clean;
-    }
-    // Check if the payment is valid
+    } // Check if the payment is valid
     elseif (isset($response['error']) AND $response['error']) {
       $return['approved'] = FALSE;
       $return['message'] = t('Error validating the payment: @message',
@@ -1759,16 +1723,14 @@ function ms_cres_validate_payment($order, $params) {
 
       ms_core_log_error('ms_cres', "Error validating the payment: @message. Details: !details",
         array('!details' => ms_core_print_r($response), '@message' => $response['error_message']));
-    }
-    elseif ($response['order_id_match'] == 'NO' OR $response['total_amt_match'] == 'NO') {
+    } elseif ($response['order_id_match'] == 'NO' OR $response['total_amt_match'] == 'NO') {
       $return['approved'] = FALSE;
       $return['message'] = t('Error validating the payment: @message',
         array('@message' => t('Order ID or Total Amount did not match.')));
 
       ms_core_log_error('ms_cres', "Error validating the payment: @message. Details: !details",
         array('!details' => ms_core_print_r($response), '@message' => t('Order ID or Total Amount did not match.')));
-    }
-    else {
+    } else {
       $params_clean = array();
       foreach ($_GET as $key => $value) {
         $params_clean[$key] = $value;
@@ -1800,8 +1762,7 @@ function ms_cres_validate_added_card($params) {
     $return['approved'] = TRUE;
     $return['data'] = $params;
     $return['params'] = $params_clean;
-  }
-  else {
+  } else {
     if (!isset($params['msg'])) {
       $params['msg'] = t('Unknown Error');
     }
@@ -1820,8 +1781,6 @@ function ms_cres_validate_added_card($params) {
  * Send the Server Request using cURL
  */
 function ms_cres_curl_process($url, $params) {
-  $return = array();
-
   // Set the API Credentials
   $params['CRESecureID'] = variable_get('ms_cres_api_id', '');
   $params['CRESecureAPIToken'] = variable_get('ms_cres_api_token', '');

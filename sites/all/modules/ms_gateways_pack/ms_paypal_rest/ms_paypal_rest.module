@@ -2,7 +2,6 @@
 
 use PayPal\Rest\ApiContext;
 use PayPal\Auth\OAuthTokenCredential;
-use PayPal\Api\PaymentExecution;
 use PayPal\Api\Amount;
 use PayPal\Api\Address;
 use PayPal\Api\CreditCard;
@@ -11,7 +10,6 @@ use PayPal\Api\FundingInstrument;
 use PayPal\Api\Payer;
 use PayPal\Api\Payment;
 use PayPal\Api\Transaction;
-use PayPal\Api\RedirectUrls;
 
 /**
  * Implements hook_libraries_info().
@@ -50,11 +48,13 @@ function ms_paypal_rest_ms_process_recurring_payment($recurring_schedule, $order
       $creditCardToken->setCreditCardId($payment_profile->remote_id);
 
       $fi = new FundingInstrument();
-      $fi->setCredit_card_token($creditCardToken);
+      /** @noinspection PhpParamsInspection */
+      $fi->setCreditCardToken($creditCardToken);
 
       $payer = new Payer();
-      $payer->setPayment_method('credit_card');
-      $payer->setFunding_instruments(array($fi));
+      $payer->setPaymentMethod('credit_card');
+      /** @noinspection PhpParamsInspection */
+      $payer->setFundingInstruments(array($fi));
 
       // Process the payment.
       $amount_obj = new Amount();
@@ -62,11 +62,13 @@ function ms_paypal_rest_ms_process_recurring_payment($recurring_schedule, $order
       $amount_obj->setTotal($recurring_schedule->main_amount);
 
       $transaction = new Transaction();
+      /** @noinspection PhpParamsInspection */
       $transaction->setAmount($amount_obj);
       $transaction->setDescription($order->title);
 
       $PayPalPayment = new Payment();
       $PayPalPayment->setIntent('sale');
+      /** @noinspection PhpParamsInspection */
       $PayPalPayment->setPayer($payer);
       $PayPalPayment->setTransactions(array($transaction));
 
@@ -77,7 +79,6 @@ function ms_paypal_rest_ms_process_recurring_payment($recurring_schedule, $order
 
       $payment->amount = $recurring_schedule->main_amount;
       $payment->currency = $order->currency;
-      $payment->recurring_schedule = $order->recurring_schedule;
       $payment->transaction = $PayPalPayment->id;
 
       // Add the Payment to the Order
@@ -163,11 +164,13 @@ function ms_paypal_rest_saved_method_checkout($payment_profile, $order, $data) {
     $creditCardToken->setCreditCardId($payment_profile->remote_id);
 
     $fi = new FundingInstrument();
-    $fi->setCredit_card_token($creditCardToken);
+    /** @noinspection PhpParamsInspection */
+    $fi->setCreditCardToken($creditCardToken);
 
     $payer = new Payer();
-    $payer->setPayment_method('credit_card');
-    $payer->setFunding_instruments(array($fi));
+    $payer->setPaymentMethod('credit_card');
+    /** @noinspection PhpParamsInspection */
+    $payer->setFundingInstruments(array($fi));
 
     // If there is a trial period, then we charge the trial amount
     if ($order->order_type == 'recurring') {
@@ -184,7 +187,6 @@ function ms_paypal_rest_saved_method_checkout($payment_profile, $order, $data) {
 
     $payment = ms_core_new_payment($order->oid, 'ms_paypal_rest', 'cart');
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $order->oid;
 
     if ($amount > 0) {
@@ -193,11 +195,13 @@ function ms_paypal_rest_saved_method_checkout($payment_profile, $order, $data) {
       $amount_obj->setTotal($amount);
 
       $transaction = new Transaction();
+      /** @noinspection PhpParamsInspection */
       $transaction->setAmount($amount_obj);
       $transaction->setDescription($order->title);
 
       $PayPalPayment = new Payment();
       $PayPalPayment->setIntent('sale');
+      /** @noinspection PhpParamsInspection */
       $PayPalPayment->setPayer($payer);
       $PayPalPayment->setTransactions(array($transaction));
 
@@ -225,12 +229,12 @@ function ms_paypal_rest_saved_method_checkout($payment_profile, $order, $data) {
       case 'recurring':
         $payment->type = 'rec_signup';
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'cart':
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
     }
 
@@ -259,6 +263,7 @@ function ms_paypal_rest_saved_method_checkout($payment_profile, $order, $data) {
  * @param MsOrder $order
  *   The order object.
  *
+ * @return
  * @ingroup forms
  * @see ms_paypal_rest_payment_submit_form_validate()
  * @see ms_paypal_rest_payment_submit_form_submit()
@@ -302,30 +307,33 @@ function ms_paypal_rest_payment_submit_form_validate($form, &$form_state) {
     $addr = new Address();
     $addr->setLine1(check_plain($v['billing_address1']));
     $addr->setCity(check_plain($v['billing_city']));
-    $addr->setCountry_code(check_plain($v['billing_country']));
-    $addr->setPostal_code(check_plain($v['billing_zip']));
+    $addr->setCountryCode(check_plain($v['billing_country']));
+    $addr->setPostalCode(check_plain($v['billing_zip']));
     $addr->setState(check_plain($v['billing_state']));
 
     $card = new CreditCard();
     $card->setNumber(check_plain($v['cc_number']));
     $card->setType(check_plain($v['cc_type']));
-    $card->setExpire_month(check_plain($v['cc_exp_month']));
-    $card->setExpire_year(check_plain($v['cc_exp_year']));
+    $card->setExpireMonth(check_plain($v['cc_exp_month']));
+    $card->setExpireYear(check_plain($v['cc_exp_year']));
     $card->setCvv2(check_plain($v['cc_cvv']));
-    $card->setFirst_name(check_plain($v['cc_first_name']));
-    $card->setLast_name(check_plain($v['cc_last_name']));
-    $card->setBilling_address($addr);
+    $card->setFirstName(check_plain($v['cc_first_name']));
+    $card->setLastName(check_plain($v['cc_last_name']));
+    /** @noinspection PhpParamsInspection */
+    $card->setBillingAddress($addr);
     $card->create($apiContext);
 
     $creditCardToken = new CreditCardToken();
     $creditCardToken->setCreditCardId($card->id);
 
     $fi = new FundingInstrument();
-    $fi->setCredit_card_token($creditCardToken);
+    /** @noinspection PhpParamsInspection */
+    $fi->setCreditCardToken($creditCardToken);
 
     $payer = new Payer();
-    $payer->setPayment_method('credit_card');
-    $payer->setFunding_instruments(array($fi));
+    $payer->setPaymentMethod('credit_card');
+    /** @noinspection PhpParamsInspection */
+    $payer->setFundingInstruments(array($fi));
 
     // If there is a trial period, then we charge the trial amount
     if ($order->order_type == 'recurring') {
@@ -342,7 +350,6 @@ function ms_paypal_rest_payment_submit_form_validate($form, &$form_state) {
 
     $payment = ms_core_new_payment($order->oid, 'ms_paypal_rest', 'cart');
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $order->oid;
     // Update the address
     $payment->billing_address = array(
@@ -364,11 +371,13 @@ function ms_paypal_rest_payment_submit_form_validate($form, &$form_state) {
       $amount_obj->setTotal($amount);
 
       $transaction = new Transaction();
+      /** @noinspection PhpParamsInspection */
       $transaction->setAmount($amount_obj);
       $transaction->setDescription($order->title);
 
       $PayPalPayment = new Payment();
       $PayPalPayment->setIntent('sale');
+      /** @noinspection PhpParamsInspection */
       $PayPalPayment->setPayer($payer);
       $PayPalPayment->setTransactions(array($transaction));
 
@@ -384,12 +393,12 @@ function ms_paypal_rest_payment_submit_form_validate($form, &$form_state) {
       case 'recurring':
         $payment->type = 'rec_signup';
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'cart':
         $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
     }
 
@@ -428,12 +437,6 @@ function ms_paypal_rest_payment_submit_form_validate($form, &$form_state) {
     ms_core_add_data($order, $data);
     drupal_goto('ms/thankyou');
   }
-  catch (PayPal\Exception\PPConnectionException $e) {
-    form_set_error('cc_number', t('We received the following error processing your card.
-      Please enter your information again or try a different card. @error',
-      array('@error' => $e->getMessage())));
-    ms_core_debug($e->getData());
-  }
   catch (Exception $e) {
     ms_core_log('ms_paypal_rest', 'Following error received when processing card @error.', array('@error' => $e->getMessage()));
     form_set_error('cc_number', t('We received the following error processing your card.
@@ -461,7 +464,7 @@ function ms_paypal_rest_payment_submit_form_submit($form, &$form_state) {
  * @param $order
  *   The $order object
  *
- * @return
+ * @return bool
  *   TRUE if the amount was charged successfully, FALSE otherwise
  */
 function ms_paypal_rest_ms_core_modification_charge($amount, $order) {
@@ -476,23 +479,27 @@ function ms_paypal_rest_ms_core_modification_charge($amount, $order) {
       $creditCardToken->setCreditCardId($payment_profile->remote_id);
 
       $fi = new FundingInstrument();
-      $fi->setCredit_card_token($creditCardToken);
+      /** @noinspection PhpParamsInspection */
+      $fi->setCreditCardToken($creditCardToken);
 
       $payer = new Payer();
-      $payer->setPayment_method('credit_card');
-      $payer->setFunding_instruments(array($fi));
+      $payer->setPaymentMethod('credit_card');
+      /** @noinspection PhpParamsInspection */
+      $payer->setFundingInstruments(array($fi));
 
       // Try to charge the payment
       $amount_obj = new Amount();
       $amount_obj->setCurrency($order->currency);
-      $amount_obj->setTotal($recurring_schedule->main_amount);
+      $amount_obj->setTotal($amount);
 
       $transaction = new Transaction();
+      /** @noinspection PhpParamsInspection */
       $transaction->setAmount($amount_obj);
       $transaction->setDescription($order->title);
 
       $PayPalPayment = new Payment();
       $PayPalPayment->setIntent('sale');
+      /** @noinspection PhpParamsInspection */
       $PayPalPayment->setPayer($payer);
       $PayPalPayment->setTransactions(array($transaction));
 

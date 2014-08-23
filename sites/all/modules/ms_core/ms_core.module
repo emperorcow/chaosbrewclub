@@ -127,14 +127,49 @@ function ms_core_cron() {
   $time = strtotime(variable_get('ms_cart_auth_duration', '1') . ' ' . variable_get('ms_cart_auth_unit', 'years') . ' ago');
   ms_core_clear_carts($time, TRUE);
 
+  // Send the emails notifying users when their card is expiring soon.
+  $gateways = ms_core_get_payment_gateways();
+  foreach ($gateways as $gateway) {
+    if (variable_get($gateway['module'] . '_expiring_card_reminder_mail_body', '') && !empty($gateway['saved_cards_support'])) {
+      $result = db_select('ms_core_payment_profiles', 'p')
+        ->fields('p')
+        ->condition('p.notified', 0)
+        ->condition('p.module', $gateway['module'])
+        ->condition('p.exp_year', intval(date('Y')))
+        ->condition('p.exp_month', intval(date('M')))
+        ->execute();
+
+      foreach ($result as $row) {
+        $account = user_load($row->uid);
+        // Send the email.
+        drupal_mail('ms_core', 'expiring_card', $account->mail, user_preferred_language($account),
+          array('payment_profile' => $row), variable_get('ms_core_store_email', ''));
+
+        // Mark as notified.
+        db_update('ms_core_payment_profiles')
+          ->fields(array(
+            'notified' => 1,
+          ))
+          ->condition('id', $row->id)
+          ->execute();
+
+      }
+    }
+  }
+
   // Send the emails notifying users of upcoming payments.
-  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE status = :status AND next_payment <> :zero AND notified = :zero2",
-    array(':status' => 'active', ':zero' => 0, ':zero2' => 0));
+  $result = db_select('ms_recurring_schedules', 'rs')
+    ->fields('rs')
+    ->condition('rs.status', 'active')
+    ->condition('rs.next_payment', 0, '<>')
+    ->condition('rs.notified', 0)
+    ->execute();
 
   foreach ($result as $recurring_schedule) {
     $order_data = ms_core_order_load_data($recurring_schedule->oid);
     // Check if we should send the email.
-    if ($days = ms_core_variable_get('ms_core_payment_reminder_days', 0, $order_data) AND $recurring_schedule->next_payment < strtotime("+ " . $days . " days")) {
+    $days = 0;
+    if ($days = ms_core_variable_get('ms_core_payment_reminder_days', 0, $order_data) && $recurring_schedule->next_payment < strtotime("+ " . $days . " days")) {
       // Load some variables.
       $order = ms_core_order_load($recurring_schedule->oid);
       $account = user_load($order->uid);
@@ -142,21 +177,27 @@ function ms_core_cron() {
       ms_core_log('ms_core', 'Upcoming payment reminder sent to user @userid at @email.', array('@userid' => $account->uid, '@email' => $account->mail));
 
       // Send the email.
-      drupal_mail('ms_core', 'upcoming_payment', $account->mail, user_preferred_language($account), array('order' => $order), ms_core_variable_get('ms_core_store_email', '', $order));
+      if (variable_get('ms_core_upcoming_payment_mail_body', '')) {
+        drupal_mail('ms_core', 'upcoming_payment', $account->mail, user_preferred_language($account), array('order' => $order), ms_core_variable_get('ms_core_store_email', '', $order));
+      }
 
       // Mark as notified.
-      $result = db_update('ms_recurring_schedules')
+      db_update('ms_recurring_schedules')
         ->fields(array(
-        'notified' => 1,
-      ))
+          'notified' => 1,
+        ))
         ->condition('id', $recurring_schedule->id)
         ->execute();
     }
   }
 
   // Process payments that need to be processed.
-  $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE status = :status AND next_payment <> :zero AND next_payment < :now",
-    array(':status' => 'active', ':zero' => 0, ':now' => REQUEST_TIME));
+  $result = db_select('ms_recurring_schedules', 'rs')
+    ->fields('rs')
+    ->condition('rs.status', 'active')
+    ->condition('rs.next_payment', 0, '<>')
+    ->condition('rs.next_payment', REQUEST_TIME, '<')
+    ->execute();
 
   // Add a counter so that only a certain number of payments are processed each
   // cron run.
@@ -174,17 +215,18 @@ function ms_core_cron() {
       drupal_alter('ms_core_recurring_payment_recurring_schedule', $recurring_schedule, $order);
       if ($payment = call_user_func_array($gateway . '_ms_process_recurring_payment', array($recurring_schedule, $order))) {
         $counter[$gateway] = isset($counter[$gateway]) ? $counter[$gateway] + 1 : 1;
+        $payment->data['product_id'] = $recurring_schedule->pid;
         // Add the Payment to the Order.
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Check if the recurring_schedule is done and if so mark as end of term.
-        if ($recurring_schedule->total_occurrences != 0 AND $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
+        if ($recurring_schedule->total_occurrences != 0 && $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
           $payment->type = 'rec_eot';
           $payment->amount = 0;
-          ms_core_enter_payment($payment, FALSE);
+          $payment->data['product_id'] = $recurring_schedule->pid;
+          ms_core_enter_payment($payment);
         }
-      }
-      else {
+      } else {
         // Log an error.
         ms_core_log_error($gateway, 'There was an error charging a recurring payment. Order: !order', array('!order' => ms_core_print_r($order)));
         // If the failed payments counter is greater than or equal to the
@@ -194,35 +236,30 @@ function ms_core_cron() {
           $payment = ms_core_new_payment($order->oid, $gateway, 'rec_cancel');
           $payment->transaction = ms_core_generate_transaction_id(10);
           $payment->currency = $order->currency;
-          $payment->recurring_schedule = $order->recurring_schedule;
-          ms_core_enter_payment($payment, FALSE);
-        }
-        else {
+          $payment->data['product_id'] = $recurring_schedule->pid;
+          ms_core_enter_payment($payment);
+        } else {
           // Mark the payment as failed.
           $payment = ms_core_new_payment($order->oid, $gateway, 'failed');
           $payment->transaction = ms_core_generate_transaction_id(10);
           $payment->currency = $order->currency;
-          $payment->recurring_schedule = $order->recurring_schedule;
+          $payment->data['product_id'] = $recurring_schedule->pid;
 
           // Send an email to the user informing them they need to update their
-          // card info. @todo - Make this be more centralized, like having an
-          // auto-generated form with settings for each gateway, that they can
-          // add extra settings to. Example settings for all gateways would be
-          // billing error email, active, and cards.
+          // card info.
           if (ms_core_variable_get($gateway . '_billing_error_body', '', $order)) {
             $account = user_load($order->uid);
             $vars = array(
               'payment_profile' => ms_core_order_get_payment_profile($order),
               'order' => $order,
             );
-            drupal_mail($gateway, 'billing_error', $account->mail, user_preferred_language($account), $vars);
+            drupal_mail('ms_core', 'billing_error', $account->mail, user_preferred_language($account), $vars);
           }
 
-          ms_core_enter_payment($payment, FALSE);
+          ms_core_enter_payment($payment);
         }
       }
-    }
-    else {
+    } else {
       // Set the status to cancelled.
       ms_core_cancel_recurring_schedule($recurring_schedule->oid);
     }
@@ -239,16 +276,20 @@ function ms_core_cron() {
   foreach ($result as $recurring_schedule) {
     $order = ms_core_order_load($recurring_schedule->oid);
     if ($order && !empty($order->data['new_product'])) {
-      $new_product = $order->data['new_product'];
+      $new_product = $order->data['new_product']; // @fixme - This may be set to another product by this time for multi_recurring orders. Instead, we should check for the pid property of the recurring schedule, and store the new product in the product data.
+
       // Enter the rec_modify payment
       $payment = ms_core_new_payment($order->oid, $order->gateway, 'rec_modify', 0, $order->currency);
 
       // Generate a Unique Transaction ID
       $payment->data = array('new_product' => $new_product);
-      $payment->recurring_schedule = $new_product->recurring_schedule;
       $payment->recurring_id = $order->oid;
+      $payment->data['product_id'] = $recurring_schedule->pid;
 
-      ms_core_enter_payment($payment, FALSE);
+      // REMOVEME Change the status of the recurring schedule.
+      ms_core_change_recurring_schedule_status($recurring_schedule->oid, 'trying_downgrade', $recurring_schedule->pid);
+
+      ms_core_enter_payment($payment);
     }
   }
 }
@@ -285,8 +326,7 @@ function ms_core_billing_test($account, $id) {
     if ($user->uid == $payment_profile->uid OR user_access('administer moneyscripts orders')) {
       return TRUE;
     }
-  }
-  else {
+  } else {
     if ($user->uid == $account->uid OR user_access('administer moneyscripts orders')) {
       return TRUE;
     }
@@ -309,7 +349,7 @@ function ms_core_billing_info_access_test($account) {
     return FALSE;
   }
 
-  return ($user->uid == $account->uid AND user_access('edit own payment info', $account));
+  return ($user->uid == $account->uid && user_access('edit own payment info', $account));
 }
 
 /**
@@ -322,18 +362,22 @@ function ms_core_billing_info_access_test($account) {
  */
 function ms_core_view_order_access_test($account, MsOrder $order) {
   // First, check if this is pdf crowd and the setting is on.
-  if (ip_address() == '69.164.218.62' AND variable_get('ms_core_pdfcrowd_support', FALSE)) {
+  if (ip_address() == '69.164.218.62' && variable_get('ms_core_pdfcrowd_support', FALSE)) {
     return TRUE;
   }
-  global $user;
+
   return (user_access('administer moneyscripts orders') OR (user_access('view own moneyscripts orders') && ($order->uid == $account->uid)));
 }
 
 /**
- * Access callback: Checks if the user has access to the checkout page.
+ * Access callback: Checks if the user has access to resume an order.
+ *
+ * @param MsOrder $order
+ *   The order.
  */
-function ms_core_checkout_access_test() {
-  return user_access('access checkout page');
+function ms_core_resume_checkout_access_test(MsOrder $order) {
+  global $user;
+  return ($user->uid && $user->uid == $order->uid);
 }
 
 /**
@@ -344,7 +388,7 @@ function ms_core_checkout_access_test() {
  */
 function ms_core_delete_order_access_test(MsOrder $order) {
   global $user;
-  return (user_access('administer moneyscripts orders') OR ($user->uid AND $order->uid == $user->uid));
+  return (user_access('administer moneyscripts orders') OR ($user->uid && $order->uid == $user->uid));
 }
 
 /**
@@ -410,14 +454,14 @@ function ms_core_menu() {
   $items['ms/checkout'] = array(
     'title' => 'Checkout',
     'page callback' => 'ms_core_checkout_page',
-    'access callback' => 'ms_core_checkout_access_test',
+    'access arguments' => array('access checkout page'),
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
     'file' => 'ms_core.pages.inc',
   );
   $items['ms/checkout/return/%'] = array(
     'page callback' => 'ms_core_checkout_return_page',
     'page arguments' => array(3),
-    'access callback' => 'ms_core_checkout_access_test',
+    'access arguments' => array('access checkout page'),
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
     'file' => 'ms_core.pages.inc',
   );
@@ -425,15 +469,16 @@ function ms_core_menu() {
     'title' => 'Checkout',
     'page callback' => 'ms_core_checkout_payment_page',
     'page arguments' => array(3),
-    'access callback' => 'ms_core_checkout_access_test',
+    'access arguments' => array('access checkout page'),
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
     'file' => 'ms_core.pages.inc',
   );
-  $items['ms/resume-checkout/%'] = array(
+  $items['ms/resume-checkout/%ms_core_order_key'] = array(
     'title' => 'Resume Checkout',
     'page callback' => 'ms_core_resume_checkout_page',
     'page arguments' => array(2),
-    'access callback' => 'ms_core_checkout_access_test',
+    'access callback' => 'ms_core_resume_checkout_access_test',
+    'access arguments' => array(2),
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
     'file' => 'ms_core.pages.inc',
   );
@@ -729,6 +774,21 @@ function ms_core_menu() {
     'type' => MENU_CALLBACK,
     'file' => 'ms_core.pages.inc',
   );
+  $items['ms_gateway/landing/%'] = array(
+    'title' => 'Please wait',
+    'page callback' => 'ms_core_gateway_landing_page',
+    'page arguments' => array(2),
+    'access callback' => TRUE,
+    'type' => MENU_VISIBLE_IN_BREADCRUMB,
+    'file' => 'ms_core.pages.inc',
+  );
+  $items['ms_gateway/check_ipn_status/%'] = array(
+    'page callback' => 'ms_core_gateway_ipn_ajax_page',
+    'page arguments' => array(2),
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+    'file' => 'ms_core.pages.inc',
+  );
 
   return $items;
 }
@@ -782,7 +842,7 @@ function ms_core_view_orders_access_test() {
  *   The order key.
  */
 function ms_core_edit_access_test($order_key) {
-  if ($order_key AND user_access('administer moneyscripts orders')) {
+  if ($order_key && user_access('administer moneyscripts orders')) {
     return TRUE;
   }
   return FALSE;
@@ -808,20 +868,18 @@ function ms_core_requirements($phase) {
   if ($phase == 'runtime') {
     if ($req_cache = cache_get('ms_requirements')) {
       $requirements = $req_cache->data;
-    }
-    else {
+    } else {
       $modules = module_invoke_all('ms_license');
 
       if ($licenses = ms_core_check_licenses($modules)) {
         foreach ($modules as $module => $info) {
           $req = array('title' => $info['title']);
-          if (isset($licenses[$module]) AND $licenses[$module]) {
+          if (isset($licenses[$module]) && $licenses[$module]) {
             $req['value'] = 'This Software is properly licensed.';
             $req['severity'] = REQUIREMENT_OK;
-          }
-          else {
-            $req['value'] = t("This Software is not properly licensed.
-              You cannot receive any updates or support.
+          } else {
+            $req['value'] = t("This Software may not be properly licensed.
+              You cannot receive any updates or support until it is fixed.
               Please renew or purchase a new license here: !link",
               array('!link' => l($info['title'], $info['link'], array('absolute' => TRUE))));
             $req['severity'] = REQUIREMENT_ERROR;
@@ -829,16 +887,15 @@ function ms_core_requirements($phase) {
 
           $requirements[$module] = $req;
         }
-      }
-      else {
+      } else {
         $req['title'] = t('MS Core');
         $req['value'] = t("You have not yet entered your license keys.
           Your license keys are found on the !my_software section of your account.
           Please copy and paste these keys here: !link",
           array(
-          '!my_software' => l(t('My Software'), 'http://www.moneyscripts.net/user', array('absolute' => TRUE)),
-          '!link' => l(t('License Keys'), 'admin/moneyscripts/ms_core'),
-        ));
+            '!my_software' => l(t('My Software'), 'http://www.moneyscripts.net/user', array('absolute' => TRUE)),
+            '!link' => l(t('License Keys'), 'admin/moneyscripts/ms_core'),
+          ));
         $req['severity'] = REQUIREMENT_ERROR;
 
         $requirements['ms_core'] = $req;
@@ -862,22 +919,25 @@ function ms_core_requirements($phase) {
  *   An array of license results, or FALSE.
  */
 function ms_core_check_licenses($modules = array(), $rebuild = FALSE) {
-  if (!$rebuild AND $licenses_cache = cache_get('ms_licenses')) {
+  if (!$rebuild && ($licenses_cache = cache_get('ms_licenses'))) {
     return $licenses_cache->data;
   }
+
   $rec_data = xmlrpc('http://www.moneyscripts.net/xmlrpc.php', array(
     'moneyscripts.check_licenses' => array(
       variable_get('ms_core_public_key', ''),
       $_SERVER['HTTP_HOST'],
       $modules,
     ),
-  ));
+    ),
+    array('timeout' => 5)
+  );
 
   if ($error = xmlrpc_error_msg()) {
     ms_core_log_error('ms_core', 'Error using XMLRPC. Error: @error', array('@error' => $error));
   }
 
-  if (isset($rec_data['keys_valid']) AND $rec_data['keys_valid']) {
+  if (isset($rec_data['keys_valid']) && $rec_data['keys_valid']) {
     cache_set('ms_licenses', $rec_data['licenses']);
     return $rec_data['licenses'];
   }
@@ -889,35 +949,15 @@ function ms_core_check_licenses($modules = array(), $rebuild = FALSE) {
  * Implements hook_update_status_alter().
  */
 function ms_core_update_status_alter(&$projects) {
-  if ($updates_cache = cache_get('ms_updates')) {
-    $updates = $updates_cache->data;
-  }
-  else {
-    $updates = array();
-    $modules = module_invoke_all('ms_license');
+  $modules = module_invoke_all('ms_license');
 
-    if ($licenses = ms_core_check_licenses($modules)) {
-      foreach ($modules as $module => $info) {
-        $req = array('title' => $info['title']);
-        if (isset($licenses[$module]) AND isset($projects[$module])) {
-          $updates[$module] = xmlrpc('http://www.moneyscripts.net/xmlrpc.php', array(
-            'moneyscripts.check_module_updates' => array(
-              variable_get('ms_core_public_key', ''),
-              $_SERVER['HTTP_HOST'],
-              7,
-              $module,
-              $projects[$module],
-            ),
-          ));
-        }
+  $key = variable_get('ms_core_private_key', '');
+
+  foreach ($modules as $module => $info) {
+    if (!empty($projects[$module]['releases'])) {
+      foreach ($projects[$module]['releases'] as &$release_info) {
+        $release_info['download_link'] = str_replace('LICENSEKEY', $key, $release_info['download_link']);
       }
-    }
-
-    cache_set('ms_updates', $updates, 'cache');
-  }
-  if (is_array($updates)) {
-    foreach ($updates as $module => $data) {
-      $projects[$module] = $data;
     }
   }
 }
@@ -951,6 +991,9 @@ function ms_core_ms_core_overrides() {
  * @ingroup forms
  */
 function ms_core_admin($form, &$form_state) {
+  $form['vertical_tabs'] = array(
+    '#type' => 'vertical_tabs',
+  );
   if (!variable_get('ms_core_public_key', '')) {
     $form['license'] = array(
       '#type' => 'fieldset',
@@ -959,9 +1002,10 @@ function ms_core_admin($form, &$form_state) {
         area of your account on !link. If you don't have an account yet, you can
         register and get your keys for free. These keys are used to
         check for updates to the software as well as to receive support.",
-          array('!link' => l(t('MoneyScripts.net'), 'http://www.moneyscripts.net'))),
+        array('!link' => l(t('MoneyScripts.net'), 'http://www.moneyscripts.net'))),
       '#collapsible' => FALSE,
       '#collapsed' => FALSE,
+      '#group' => 'vertical_tabs',
     );
     $form['license']['ms_core_public_key'] = array(
       '#type' => 'textfield',
@@ -983,6 +1027,7 @@ function ms_core_admin($form, &$form_state) {
     '#title' => t('Main Settings'),
     '#collapsible' => FALSE,
     '#collapsed' => FALSE,
+    '#group' => 'vertical_tabs',
   );
   $form['main']['ms_core_debug_mode'] = array(
     '#type' => 'checkbox',
@@ -999,6 +1044,7 @@ function ms_core_admin($form, &$form_state) {
     '#description' => t("Which currency to use for this site?"),
     '#required' => TRUE,
     '#ms_override' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['main']['ms_core_format_money_template'] = array(
     '#type' => 'textfield',
@@ -1007,6 +1053,7 @@ function ms_core_admin($form, &$form_state) {
     '#description' => t("Customize the template used for formatting money strings.
       You can use the following tokens: [sign], [number], [decimal], [currency_code]"),
     '#required' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['main']['ms_core_auto_login'] = array(
     '#type' => 'checkbox',
@@ -1020,7 +1067,7 @@ function ms_core_admin($form, &$form_state) {
     '#type' => 'textarea',
     '#title' => t('Thank-You Page Template'),
     '#default_value' => variable_get('ms_core_thankyou_page_template',
-"<p>Thank you for your purchase, [user:name]! Your payment has been received and your order details are below:</p>
+      "<p>Thank you for your purchase, [user:name]! Your payment has been received and your order details are below:</p>
 <br />
 <p>Order # [ms_core_order:orderId]</p>
 <p>Order Status: [ms_core_order:orderStatus]</p>
@@ -1029,9 +1076,24 @@ function ms_core_admin($form, &$form_state) {
 <br />
 <p>Please print a copy of this page for your records.</p>
 "),
-    '#description' => t('Customize the text shown on the Thank-You page.
-    You may use the Order, User and Payment tokens listed below.'),
+    '#description' => t('Customize the text shown on the Thank-You page. You may use the Order, User and Payment tokens listed below.'),
     '#required' => FALSE,
+    '#ms_i18n' => TRUE,
+  );
+  $form['main']['ms_core_thankyou_page_free_template'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Thank-You Page Template for Free Orders'),
+    '#default_value' => variable_get('ms_core_thankyou_page_free_template',
+      "<p>Thank you for your order, [user:name]! Your order details are below:</p>
+<br />
+<p>Order # [ms_core_order:orderId]</p>
+<p>Order Status: [ms_core_order:orderStatus]</p>
+<br />
+<p>Please print a copy of this page for your records.</p>
+"),
+    '#description' => t("Customize the text shown on the Free Order Thank-You page. You may use the Order and User tokens listed below. Payment tokens aren't available because there are no payments associated with free orders."),
+    '#required' => FALSE,
+    '#ms_i18n' => TRUE,
   );
   $form['main']['ms_core_thankyou_page_template_token_help']['tokens'] = array(
     '#theme' => 'token_tree',
@@ -1047,6 +1109,7 @@ function ms_core_admin($form, &$form_state) {
     Leave blank to use the default Thank-You page and template above.'),
     '#required' => FALSE,
     '#ms_override' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['main']['ms_core_order_number_mode'] = array(
     '#type' => 'radios',
@@ -1063,6 +1126,7 @@ function ms_core_admin($form, &$form_state) {
   $form['user'] = array(
     '#type' => 'fieldset',
     '#title' => t('User settings'),
+    '#group' => 'vertical_tabs',
   );
   $form['user']['ms_core_send_registration_mail'] = array(
     '#type' => 'checkbox',
@@ -1074,6 +1138,7 @@ function ms_core_admin($form, &$form_state) {
   $form['cart'] = array(
     '#type' => 'fieldset',
     '#title' => t('Cart settings'),
+    '#group' => 'vertical_tabs',
   );
   $form['cart']['ms_cart_add_item_msg'] = array(
     '#type' => 'checkbox',
@@ -1086,6 +1151,7 @@ function ms_core_admin($form, &$form_state) {
     '#description' => t('Specify the drupal path to take the user when they click the Continue Shopping button.'),
     '#default_value' => variable_get('ms_core_continue_shopping_path', ''),
     '#size' => 16,
+    '#ms_i18n' => TRUE,
   );
   $form['cart']['ms_minimum_subtotal'] = array(
     '#type' => 'textfield',
@@ -1158,6 +1224,7 @@ function ms_core_admin($form, &$form_state) {
   $form['checkout'] = array(
     '#type' => 'fieldset',
     '#title' => t('Checkout Settings'),
+    '#group' => 'vertical_tabs',
   );
   $form['checkout']['ms_core_skip_checkout'] = array(
     '#type' => 'checkbox',
@@ -1172,6 +1239,7 @@ function ms_core_admin($form, &$form_state) {
     '#default_value' => variable_get('ms_core_terms_service_nid', ''),
     '#description' => t('Enter the node id of your terms of service page if you would like to show an "Agree" checkbox on the Checkout page.'),
     '#required' => FALSE,
+    '#ms_i18n' => TRUE,
   );
   $form['checkout']['ms_core_terms_service_text'] = array(
     '#type' => 'textfield',
@@ -1179,6 +1247,7 @@ function ms_core_admin($form, &$form_state) {
     '#default_value' => variable_get('ms_core_terms_service_text', t('I agree to the Terms of Service')),
     '#description' => t('Enter the agree text that you would like to use on the Checkout Form.'),
     '#required' => FALSE,
+    '#ms_i18n' => TRUE,
   );
   $form['checkout']['ms_core_terms_service_hide_for_authenticated'] = array(
     '#type' => 'checkbox',
@@ -1222,6 +1291,7 @@ function ms_core_admin($form, &$form_state) {
     '#default_value' => variable_get('ms_core_default_gateway', key($gateways)),
     '#description' => t("Which gateway should be selected by default on the checkout page?"),
     '#required' => FALSE,
+    '#ms_i18n' => TRUE,
   );
   $form['checkout']['ms_core_checkout_require_account_info'] = array(
     '#type' => 'select',
@@ -1276,6 +1346,13 @@ function ms_core_admin($form, &$form_state) {
       '#required' => FALSE,
     );
   }
+  $form['checkout']['form_fields']['ms_core_user_fields_checkout_integration'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show the core account fields on the checkout page?'),
+    '#default_value' => variable_get('ms_core_user_fields_checkout_integration', FALSE),
+    '#description' => t('This will let anonymous users fill in the core user fields during checkout, but it also requires the user account to be created before payment is received.'),
+    '#required' => FALSE,
+  );
 
   $form['checkout']['form_fields']['cc'] = array(
     '#type' => 'fieldset',
@@ -1310,16 +1387,18 @@ function ms_core_admin($form, &$form_state) {
       '#collapsible' => TRUE,
     );
     $form['checkout']['form_fields'][$data['group']][$field]['ms_checkout_form_' . $field . '_title'] = array(
-      '#title' => t('Title'),
+      '#title' => $data['name'] . ' - ' . t('Title'),
       '#type' => 'textfield',
       '#default_value' => variable_get('ms_checkout_form_' . $field . '_title', $data['name']),
       '#size' => 32,
+      '#ms_i18n' => TRUE,
     );
     $form['checkout']['form_fields'][$data['group']][$field]['ms_checkout_form_' . $field . '_description'] = array(
-      '#title' => t('Description'),
+      '#title' => $data['name'] . ' - ' . t('Description'),
       '#type' => 'textfield',
       '#default_value' => variable_get('ms_checkout_form_' . $field . '_description', $data['description']),
       '#size' => 80,
+      '#ms_i18n' => TRUE,
     );
     $form['checkout']['form_fields'][$data['group']][$field]['ms_checkout_form_' . $field . '_enabled'] = array(
       '#type' => 'checkbox',
@@ -1340,12 +1419,14 @@ function ms_core_admin($form, &$form_state) {
         '#collapsible' => TRUE,
         '#collapsed' => TRUE,
       );
-      $form['checkout']['form_fields'][$data['group']][$field]['profile']['ms_core_profile_' . $field] = array(
-        '#type' => 'select',
-        '#title' => t('Link Profile Field'),
-        '#options' => $profile_fields,
-        '#default_value' => variable_get('ms_core_profile_' . $field, $data['profile']),
-      );
+      if (!empty($profile_fields)) {
+        $form['checkout']['form_fields'][$data['group']][$field]['profile']['ms_core_profile_' . $field] = array(
+          '#type' => 'select',
+          '#title' => t('Link Profile Field'),
+          '#options' => $profile_fields,
+          '#default_value' => variable_get('ms_core_profile_' . $field, $data['profile']),
+        );
+      }
     }
   }
 
@@ -1357,6 +1438,7 @@ function ms_core_admin($form, &$form_state) {
     '#default_value' => variable_get('ms_core_default_country', 'US'),
     '#required' => FALSE,
     '#empty_option' => t('None'),
+    '#ms_i18n' => TRUE,
   );
 
   // Show an option for default state.
@@ -1365,6 +1447,7 @@ function ms_core_admin($form, &$form_state) {
     '#title' => t('Default State'),
     '#default_value' => variable_get('ms_core_default_state', ''),
     '#description' => t("Enter the two later state code for the default state."),
+    '#ms_i18n' => TRUE,
   );
 
   $form['advanced'] = array(
@@ -1372,6 +1455,7 @@ function ms_core_admin($form, &$form_state) {
     '#title' => t('Advanced Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
   );
   $form['advanced']['ms_core_charge_back_payments'] = array(
     '#type' => 'checkbox',
@@ -1380,12 +1464,20 @@ function ms_core_admin($form, &$form_state) {
     '#description' => t('If this setting is checked, MS Core will attempt to charge all back payments if a customer updates their billing information and there are multiple missed payments. Otherwise, it will only attempt to charge 1 back-payment, and continue from there.'),
     '#required' => FALSE,
   );
+  $form['advanced']['ms_core_allow_multi_recurring'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Allow orders to have more than 1 Recurring product at a time?'),
+    '#default_value' => variable_get('ms_core_allow_multi_recurring', FALSE),
+    '#description' => t("This is still experimental and is only supported by one payment gateway: Stripe. If you don't have a supported gateway installed, this won't work."),
+    '#required' => FALSE,
+  );
   $form['email'] = array(
     '#type' => 'fieldset',
     '#title' => t('Email Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
     '#ms_override' => TRUE,
+    '#group' => 'vertical_tabs',
   );
   $form['email']['ms_core_store_email'] = array(
     '#type' => 'textfield',
@@ -1395,6 +1487,7 @@ function ms_core_admin($form, &$form_state) {
     '#default_value' => variable_get('ms_core_store_email', ''),
     '#required' => FALSE,
     '#ms_override' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['email']['ms_core_payment_reminder_days'] = array(
     '#type' => 'textfield',
@@ -1403,12 +1496,14 @@ function ms_core_admin($form, &$form_state) {
     '#required' => FALSE,
     '#default_value' => variable_get('ms_core_payment_reminder_days', '0'),
     '#ms_override' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['email']['ms_core_upcoming_payment_mail_subject'] = array(
     '#type' => 'textfield',
     '#title' => t('Upcoming Payment Reminder Mail Subject'),
     '#required' => FALSE,
     '#default_value' => variable_get('ms_core_upcoming_payment_mail_subject', t("Upcoming Payment")),
+    '#ms_i18n' => TRUE,
   );
   $form['email']['ms_core_upcoming_payment_mail_body'] = array(
     '#type' => 'textarea',
@@ -1419,6 +1514,7 @@ function ms_core_admin($form, &$form_state) {
 
 Sincerely,
 Site Admin")),
+    '#ms_i18n' => TRUE,
   );
   $form['email']['ms_core_upcoming_payment_mail_token_help']['tokens'] = array(
     '#theme' => 'token_tree',
@@ -1432,6 +1528,7 @@ Site Admin")),
     '#required' => FALSE,
     '#default_value' => variable_get('ms_core_order_thankyou_mail_subject', t("Thank You")),
     '#ms_override' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['email']['ms_core_order_thankyou_mail_body'] = array(
     '#type' => 'textarea',
@@ -1440,6 +1537,7 @@ Site Admin")),
     '#required' => FALSE,
     '#default_value' => variable_get('ms_core_order_thankyou_mail_body', ''),
     '#ms_override' => TRUE,
+    '#ms_i18n' => TRUE,
   );
   $form['email']['ms_core_order_thankyou_mail_token_help']['tokens'] = array(
     '#theme' => 'token_tree',
@@ -1452,6 +1550,7 @@ Site Admin")),
     '#title' => t('Invoice Settings'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
   );
   $form['invoice']['ms_core_pdfcrowd_support'] = array(
     '#type' => 'checkbox',
@@ -1467,6 +1566,7 @@ Site Admin")),
       Suggestions include your business name, address, and contact info."),
     '#required' => FALSE,
     '#default_value' => variable_get('ms_core_invoice_header', "<h2>[site:name]</h2><h4>[site:slogan]</h4>"),
+    '#ms_i18n' => TRUE,
   );
   $form['invoice']['ms_core_invoice_header_token_help']['tokens'] = array(
     '#theme' => 'token_tree',
@@ -1479,6 +1579,7 @@ Site Admin")),
     '#title' => t('License Keys'),
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
   );
   $form['license']['ms_core_public_key'] = array(
     '#type' => 'textfield',
@@ -1552,7 +1653,7 @@ function ms_core_block_configure($delta = '') {
       '#title' => t('Help Text'),
       '#size' => 60,
       '#description' => t('Specify some help text that will appear at the bottom of the Cart Block.'),
-      '#default_value' => variable_get('ms_core_cart_block_help_text',    ''),
+      '#default_value' => variable_get('ms_core_cart_block_help_text', ''),
     );
     $form['ms_core_cart_block_empty_hide'] = array(
       '#type' => 'checkbox',
@@ -1578,6 +1679,7 @@ function ms_core_block_save($delta = '', $edit = array()) {
  * Implements hook_block_view().
  */
 function ms_core_block_view($delta = '') {
+  $block = array();
   switch ($delta) {
     case 'ms_core_cart':
       $block['subject'] = t('Shopping Cart');
@@ -1606,7 +1708,7 @@ function ms_core_set_order_session(MsOrder $order) {
  */
 function ms_core_show_order_messages(MsOrder $order) {
   foreach ($order->products as $product) {
-    if (isset($product->data['messages']) AND is_array($product->data['messages'])) {
+    if (isset($product->data['messages']) && is_array($product->data['messages'])) {
       foreach ($product->data['messages'] as $message) {
         drupal_set_message(filter_xss($message));
       }
@@ -1657,7 +1759,7 @@ function ms_core_history($account) {
   foreach ($orders as $order) {
     $actions = array();
     $actions[] = l(t('View Details'), 'user/' . $account->uid . '/order-history/view/' . $order->order_key);
-    if ($order->status == 'checkout' AND $user->uid == $order->uid) {
+    if ($order->status == 'checkout' && $user->uid == $order->uid) {
       $actions[] = l(t('Checkout'), 'ms/resume-checkout/' . $order->order_key);
       $actions[] = l(t('Delete'), 'user/' . $user->uid . '/order-history/delete/' . $order->order_key);
     }
@@ -1714,7 +1816,7 @@ function ms_core_checkout() {
 /**
  * Generates a random transaction id.
  *
- * @param object $object
+ * @param mixed $object
  *   Some variables to use for seeding the id.
  *
  * @return string
@@ -1951,13 +2053,13 @@ function ms_core_get_checkout_form_fields($type = 'all') {
  * Implements hook_ms_order_assign_user().
  */
 function ms_core_ms_order_assign_user($type, MsProduct $product, MsOrder $order, MsPayment $payment) {
-  if (isset($order->data['register_form']['email1']) AND isset($order->data['register_form']['email1'])) {
+  if (isset($order->data['register_form']['email1']) && isset($order->data['register_form']['email1'])) {
     // Check if an account should be created.
     switch ($type) {
       case 'cart':
       case 'rec_signup':
         ms_core_log('ms_core', 'Assigning a user to an Order: <br />Order: !order <br />Payment: !payment',
-            array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
+          array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
 
         // Register the User once they have paid.
         $pass = !empty($order->data['register_form']['password1']) ? $order->data['register_form']['password1'] : user_password();
@@ -1985,11 +2087,11 @@ function ms_core_ms_order_assign_user($type, MsProduct $product, MsOrder $order,
 
       case 'rec_payment':
         ms_core_log('ms_core', 'Waiting for Signup notification: Payment Type: !type<br />Product: !product <br />Payment: !payment',
-            array(
-          '!type' => $type,
-          '!product' => ms_core_print_r($product),
-          '!payment' => ms_core_print_r($payment),
-        ));
+          array(
+            '!type' => $type,
+            '!product' => ms_core_print_r($product),
+            '!payment' => ms_core_print_r($payment),
+          ));
         for ($counter = 1; $counter <= 10; $counter += 1) {
           $order = ms_core_order_load($order->oid);
           if ($order->uid) {
@@ -2020,8 +2122,7 @@ function ms_core_create_username($mail) {
     $count += 1;
     if ($name_account = user_load_by_name($temp_name)) {
       $temp_name = $name . $count;
-    }
-    else {
+    } else {
       break;
     }
   }
@@ -2081,7 +2182,6 @@ function ms_core_add_to_cart_form($form, &$form_state, MsProduct $product, $text
   if (!empty($product->data['adjustments'])) {
     $form['options']['#tree'] = TRUE;
     foreach ($product->data['adjustments'] as $adjustment_id => $adjustment) {
-      $adjustment = (object) $adjustment;
       $adjustment->adjustment_id = $adjustment_id;
       if (!empty($adjustment->optional) || !empty($adjustment->options)) {
         $adjustment_widget = ms_core_optional_adjustment_form($form, $form_state, $adjustment);
@@ -2101,7 +2201,6 @@ function ms_core_add_to_cart_form($form, &$form_state, MsProduct $product, $text
       '#size' => '5',
       '#default_value' => $product->qty,
     );
-    $max_qty = 9999;
     if (!empty($product->data['qty_available'])) {
       $max_qty = $product->data['qty_available'];
       $form['qty']['#title'] .= ' ' . t('@num available', array('@num' => $max_qty));
@@ -2111,25 +2210,6 @@ function ms_core_add_to_cart_form($form, &$form_state, MsProduct $product, $text
     $form['#attached']['css'] = array(
       //drupal_get_path('module', 'ms_core') . '/js/smartspinner/smartspinner.css',
       drupal_get_path('module', 'ms_core') . '/css/ms_core.css',
-    );
-
-    $spin_js = "
-(function ($) {
-
-  Drupal.behaviors.ajaxCheckout = {
-    attach: function (context, settings) {
-      $('.ms_quantity_box').each(function(e){
-        var init_val = $(this).val();
-        $(this).spinit({min:1,max:$max_qty,stepInc:1,pageInc:20,height: 22,initValue:init_val});
-      });
-    }
-  };
-
-})(jQuery);
-        ";
-    $form['#attached']['js'] = array(
-      //drupal_get_path('module', 'ms_core') . '/js/smartspinner/smartspinner.js',
-      //$spin_js => array('type' => 'inline', 'group' => JS_THEME, 'scope' => 'footer'),
     );
 
     if (!empty($product->data['qty_validate'])) {
@@ -2210,8 +2290,7 @@ function ms_core_add_to_cart_form_submit($form, &$form_state) {
         $product->data['adjustments'][$adjustment_id]['option'] = $value;
         $product->data['adjustments'][$adjustment_id]['display'] .= ": " . $product->data['adjustments'][$adjustment_id]['options'][$value]['name'];
         $product->data['adjustments'][$adjustment_id]['value'] = !empty($product->data['adjustments'][$adjustment_id]['options'][$value]['price']) ? $product->data['adjustments'][$adjustment_id]['options'][$value]['price'] : 0;
-      }
-      else {
+      } else {
         $product->data['adjustments'][$adjustment_id]['active'] = $value;
       }
     }
@@ -2247,7 +2326,11 @@ function ms_core_add_to_cart_form_submit($form, &$form_state) {
  * @ingroup ms_core_api
  */
 function ms_core_log_error($type, $message, $args = array(), $severity = WATCHDOG_ERROR, $link = NULL) {
-  $trace = debug_backtrace();
+  if (function_exists('ddebug_backtrace')) {
+    $trace = ddebug_backtrace();
+  } else {
+    $trace = debug_backtrace();
+  }
   $file = isset($trace[1]['file']) ? $trace[1]['file'] : $trace[0]['file'];
   $line = isset($trace[1]['line']) ? $trace[1]['line'] : $trace[0]['line'];
 
@@ -2302,7 +2385,7 @@ function ms_core_log($type, $message, $args = array(), $always_log = FALSE, $sev
  * If the devel module is enabled, dpm() will be used instead of
  * drupal_set_message().
  *
- * @param object $var
+ * @param mixed $var
  *   The variable to display.
  * @param bool $set_message
  *   (optional) Whether the message should be displayed to the screen as well.
@@ -2317,13 +2400,12 @@ function ms_core_debug($var, $set_message = TRUE) {
     $file = isset($trace[1]['file']) ? $trace[1]['file'] : $trace[0]['file'];
     $line = isset($trace[1]['line']) ? $trace[1]['line'] : $trace[0]['line'];
 
-    $message = ms_core_print_r($var) .'<br /> '. "Logged at $file line $line";
+    $message = ms_core_print_r($var) . '<br /> ' . "Logged at $file line $line";
 
     if ($set_message) {
       if (function_exists('dpm')) {
         dpm($var);
-      }
-      else {
+      } else {
         // @ignore security_dsm
         drupal_set_message($message);
       }
@@ -2346,8 +2428,7 @@ function ms_backtrace($log = FALSE) {
 
   if (function_exists('dpm')) {
     dpm($trace);
-  }
-  else {
+  } else {
     // @ignore security_2
     drupal_set_message(ms_core_print_r($trace));
   }
@@ -2360,7 +2441,7 @@ function ms_backtrace($log = FALSE) {
 /**
  * Wraps a print_r of a variable with pre tags.
  *
- * @param object $var
+ * @param $var
  *   The variable to print_r.
  *
  * @return string
@@ -2390,7 +2471,7 @@ function ms_core_get_exchange_rate_from_google($from, $to) {
   $conversion = round($conversion, 2);
   $rhs_text = ucwords(str_replace($converted_amount[0], "", $result[3]));
   $rhs = $conversion . $rhs_text;
-  $rate = (float) preg_replace('_^\D+|\D+$_', "", $rhs);
+  $rate = (float)preg_replace('_^\D+|\D+$_', "", $rhs);
   return $rate > 0 ? $rate : FALSE;
 }
 
@@ -2421,17 +2502,14 @@ function ms_core_get_currency_exchange_rate($from, $to) {
     }
 
     return $cache->data;
-  }
-  else {
+  } else {
     // Attempt to fetch new data for the first time.
     if ($rate = ms_core_get_exchange_rate_from_google($from, $to)) {
       // Set the cache.
       cache_set('ms_core_currency_rate_' . $from . '_' . $to, $rate, 'cache', CACHE_PERMANENT);
       return $rate;
-    }
-    else {
-      ms_core_log_error('ms_core', 'There was an error getting the Exchange Rates. Details: !vars',
-        array('!vars' => ms_core_print_r($response)));
+    } else {
+      ms_core_log_error('ms_core', 'There was an error getting the Exchange Rates.');
       return FALSE;
     }
   }
@@ -2455,8 +2533,7 @@ function ms_core_get_currency_exchange_rate($from, $to) {
 function ms_core_convert_currency($from, $to, $amount) {
   if ($rate = ms_core_get_currency_exchange_rate($from, $to)) {
     return round($amount * $rate, 2);
-  }
-  else {
+  } else {
     return FALSE;
   }
 }
@@ -2538,9 +2615,7 @@ function ms_core_get_order_details_table(MsOrder $order, $cart = FALSE) {
       $build['ms_autobill_option'] = drupal_get_form('ms_core_autobill_option_form', $order, $cart);
     }
     return drupal_render($build);
-  }
-
-  else { // There are no products in the cart.
+  } else { // There are no products in the cart.
     return t('There are currently no products in your shopping cart.');
   }
 }
@@ -2595,7 +2670,8 @@ function ms_core_get_order_payments_table(MsOrder $order) {
 
     // Show the next payment if it is recurring.
     if ($order->order_type == 'recurring') {
-      if ($order AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid) AND $recurring_schedule->status == 'active' AND $recurring_schedule->next_payment > REQUEST_TIME) {
+      $recurring_schedule = ms_core_load_recurring_schedule($order->oid);
+      if ($recurring_schedule && $recurring_schedule->next_payment > REQUEST_TIME) {
         $rows[] = array(
           format_date($recurring_schedule->next_payment),
           t('Next Payment'),
@@ -2608,14 +2684,12 @@ function ms_core_get_order_payments_table(MsOrder $order) {
     $build = array();
 
     $build['content']['ms_core_payments_table']['#markup'] = theme('table', array('header' => $headers, 'rows' => $rows, 'attributes' => array(
-        'class' => array('ms_order_table'),
-        'id' => 'ms-core-order-history-table',
-      ), 'empty' => t('No payments yet.'), 'caption' => t('Payments')));
+      'class' => array('ms_order_table'),
+      'id' => 'ms-core-order-history-table',
+    ), 'empty' => t('No payments yet.'), 'caption' => t('Payments')));
 
     return $build;
-  }
-
-  else {
+  } else {
     // There are no products in the cart.
     return t('There are currently no payments associated with this order.');
   }
@@ -2635,8 +2709,6 @@ function ms_core_get_order_payments_table(MsOrder $order) {
 function ms_core_get_order_customer_information_table(MsOrder $order) {
   // Add the CSS.
   drupal_add_css(drupal_get_path('module', 'ms_core') . '/css/ms_core.css');
-
-  $admin = user_access('administer moneyscripts orders');
 
   $headers = array();
 
@@ -2692,9 +2764,9 @@ function ms_core_get_order_customer_information_table(MsOrder $order) {
   }
 
   $billing_address = theme('table', array('header' => $headers, 'rows' => $rows, 'attributes' => array(
-      'class' => array('ms_order_table'),
-      'id' => 'ms-core-order-customer-information-table',
-    ), 'caption' => t('Customer Information')));
+    'class' => array('ms_order_table'),
+    'id' => 'ms-core-order-customer-information-table',
+  ), 'caption' => t('Customer Information')));
 
   // Show the shipping information too.
   $rows = array();
@@ -2748,9 +2820,9 @@ function ms_core_get_order_customer_information_table(MsOrder $order) {
   }
 
   $shipping_address = theme('table', array('header' => $headers, 'rows' => $rows, 'attributes' => array(
-      'class' => array('ms_order_table'),
-      'id' => 'ms-core-order-history-table',
-    ), 'caption' => t('Shipping Address')));
+    'class' => array('ms_order_table'),
+    'id' => 'ms-core-order-history-table',
+  ), 'caption' => t('Shipping Address')));
 
   return $billing_address . $shipping_address;
 }
@@ -2788,21 +2860,18 @@ function ms_core_get_order_history_table(MsOrder $order) {
     $rows = array();
 
     foreach ($order->history as $item) {
-      if ($item->hidden AND $admin) {
+      if ($item->hidden && $admin) {
         $rows[] = array(format_date($item->created), $item->message);
-      }
-      elseif (!$item->hidden) {
+      } elseif (!$item->hidden) {
         $rows[] = array(format_date($item->created), $item->message);
       }
     }
 
     return theme('table', array('header' => $headers, 'rows' => $rows, 'attributes' => array(
-        'class' => array('ms_order_table'),
-        'id' => 'ms-core-order-history-table',
-      ), 'empty' => t('No history.'), 'caption' => t('History')));
-  }
-
-  else {
+      'class' => array('ms_order_table'),
+      'id' => 'ms-core-order-history-table',
+    ), 'empty' => t('No history.'), 'caption' => t('History')));
+  } else {
     // There are no products in the cart.
     return t('There are currently no history items associated with this order.');
   }
@@ -2814,18 +2883,18 @@ function ms_core_get_order_history_table(MsOrder $order) {
 function ms_core_user_login(&$edit, $account) {
   // Add items from an anonymous cart to a user's permanent cart on login.
   // Update the cart so the ID is switched from the session to user ID.
-  if (isset($_SESSION['ms_cart_id']) AND $_SESSION['ms_cart_id']) {
+  if (isset($_SESSION['ms_cart_id']) && $_SESSION['ms_cart_id']) {
     db_update('ms_cart_products')
       ->fields(array(
-      'cart_id' => $account->uid,
-    ))
+        'cart_id' => $account->uid,
+      ))
       ->condition('cart_id', $_SESSION['ms_cart_id'])
       ->execute();
 
     db_update('ms_cart_adjustments')
       ->fields(array(
-      'cart_id' => $account->uid,
-    ))
+        'cart_id' => $account->uid,
+      ))
       ->condition('cart_id', $_SESSION['ms_cart_id'])
       ->execute();
   }
@@ -2843,7 +2912,7 @@ function ms_core_get_adjustments_html(&$rows, MsOrder $order) {
   $price = ms_core_get_order_products_total($order);
   foreach ($order->adjustments as $adjustment) {
     // Only show the adjustments that don't have product associations.
-    if ($adjustment->active AND empty($adjustment->product_id)) {
+    if ($adjustment->active && empty($adjustment->product_id)) {
       $value = ms_core_get_adjusted_price($adjustment, $price);
 
       $adjustment_value = ms_core_get_adjustment_text($order, $adjustment, $value);
@@ -2902,22 +2971,19 @@ function ms_core_get_adjustment_text(MsOrder $order, MsAdjustment $adjustment, $
         $recurring_schedule['has_trial'] = FALSE;
         $recurring = FALSE;
       }
-      $main_price += $main_value;
-    }
-    else {
+    } else {
       $recurring_schedule['main_amount'] = $value;
     }
 
     if ($recurring_schedule['main_amount'] == $recurring_schedule['trial_amount']
-       AND $recurring_schedule['main_length'] == $recurring_schedule['trial_length']) {
+      && $recurring_schedule['main_length'] == $recurring_schedule['trial_length']
+    ) {
       $adjustment_value = ms_core_format_money($recurring_schedule['main_amount'], $order->currency);
-    }
-    else {
+    } else {
       $recurring_schedule['currency'] = $order->currency;
       $adjustment_value = ms_core_get_recurring_string($recurring_schedule, $recurring, TRUE);
     }
-  }
-  else {
+  } else {
     $adjustment_value = ms_core_format_money($value, $order->currency);
   }
 
@@ -2935,7 +3001,6 @@ function ms_core_get_adjustment_text(MsOrder $order, MsAdjustment $adjustment, $
  *   (optional) Whether or not this order is a cart. Defaults to FALSE.
  */
 function ms_core_get_order_items_html(&$rows, MsOrder $order, $cart = FALSE) {
-  $price = ms_core_get_order_products_total($order);
   foreach ($order->products as $prod_num => $product) {
     $item_display = array();
     if ($cart) {
@@ -2954,7 +3019,7 @@ function ms_core_get_order_items_html(&$rows, MsOrder $order, $cart = FALSE) {
     $product->recurring_schedule['data'] = $order->data;
     $product->recurring_schedule['currency'] = $order->currency;
     $product->recurring_schedule['qty'] = $product->qty;
-    $price = ms_core_get_recurring_string($product->recurring_schedule, $order->order_type == 'recurring');
+    $price = ms_core_get_recurring_string($product->recurring_schedule, $product->type == 'recurring');
 
     $item_name = $product->name;
     if ($product->qty > 1) {
@@ -2967,11 +3032,9 @@ function ms_core_get_order_items_html(&$rows, MsOrder $order, $cart = FALSE) {
     );
 
     // Add the quantity widget if the product is quantifiable.
-    if ($cart AND !empty($product->data['allow_multiple'])) {
+    if ($cart && !empty($product->data['allow_multiple'])) {
       $item_display['qty_widget'] = drupal_get_form('ms_cart_qty_widget_form_' . $product->cart_product_id, $order->cart_id, $product);
     }
-
-    $product_total = $product->amount;
 
     $rows[] = array(
       'item' => array('data' => $item_display),
@@ -2984,20 +3047,19 @@ function ms_core_get_order_items_html(&$rows, MsOrder $order, $cart = FALSE) {
     // Add the product specific adjustments here.
     $product_total = ms_core_get_product_display_price($product);
     foreach ($order->adjustments as $adjustment) {
-      if (!empty($adjustment->product_id) AND (($cart AND $adjustment->product_id == $product->cart_product_id) OR (!$cart AND $adjustment->product_id == $product->order_product_id))) {
-        if (!$cart AND !$adjustment->active) {
+      if (!empty($adjustment->product_id) && (($cart && $adjustment->product_id == $product->cart_product_id) OR (!$cart && $adjustment->product_id == $product->order_product_id))) {
+        if (!$cart && !$adjustment->active) {
           continue;
         }
         $value = ms_core_get_adjusted_price($adjustment, $product_total);
 
-        if ($cart AND $adjustment->optional) {
+        if ($cart && $adjustment->optional) {
           $adjustment->display = drupal_get_form('ms_core_optional_adjustment_form_' . $adjustment->adjustment_id, $adjustment);
         }
         if ($adjustment->active) {
           $product_total += $value;
           $adjustment_value = ms_core_get_adjustment_text($order, $adjustment, $value);
-        }
-        else {
+        } else {
           $adjustment_value = "";
         }
 
@@ -3046,7 +3108,7 @@ function ms_core_optional_adjustment_form($form, &$form_state, $adjustment) {
     foreach ($adjustment->options as $option_key => $sub_option) {
       $sub_options[$option_key] = $sub_option['name'];
       if (!empty($sub_option['price'])) {
-        $sub_options[$option_key] .= " (+". ms_core_format_money($sub_option['price']) . ")";
+        $sub_options[$option_key] .= " (+" . ms_core_format_money($sub_option['price']) . ")";
       }
     }
 
@@ -3121,32 +3183,8 @@ function ms_cart_qty_widget_form($form, &$form_state, $cid, MsProduct $product) 
     $form['qty']['#element_validate'][] = $product->data['qty_validate'];
   }
 
-  $max_qty = 9999;
-  if (!empty($product->data['qty_available'])) {
-    $max_qty = $product->data['qty_available'];
-  }
-  $spin_js = "
-(function ($) {
-
-  Drupal.behaviors.msCoreSpinner = {
-    attach: function (context, settings) {
-      $('.ms_quantity_box').each(function(e){
-        var init_val = $(this).val();
-        $(this).spinit({min:0,max:$max_qty,stepInc:1,pageInc:20,height: 22,initValue:init_val});
-      });
-    }
-  };
-
-})(jQuery);";
-
   $form['#attached']['css'] = array(
-    //drupal_get_path('module', 'ms_core') . '/js/smartspinner/smartspinner.css',
     drupal_get_path('module', 'ms_core') . '/css/ms_core.css',
-  );
-
-  $form['#attached']['js'] = array(
-    //drupal_get_path('module', 'ms_core') . '/js/smartspinner/smartspinner.js',
-    //$spin_js => array('type' => 'inline', 'group' => JS_THEME, 'scope' => 'footer'),
   );
 
   return $form;
@@ -3159,21 +3197,20 @@ function ms_cart_qty_widget_form($form, &$form_state, $cid, MsProduct $product) 
  * the order html.
  */
 function ms_core_qty_ajax_callback($form, $form_state) {
-  $qty = (int) $form_state['values']['qty'];
+  $qty = (int)$form_state['values']['qty'];
   $product = $form_state['product'];
   if ($qty > 0) {
     // Save the quantity for the product
     db_update('ms_cart_products')
       ->fields(array(
-      'qty' => $qty,
-    ))
+        'qty' => $qty,
+      ))
       ->condition('cart_id', $form_state['cid'])
       ->condition('cart_product_id', $product->cart_product_id)
       ->execute();
     $cart = ms_core_get_cart($form_state['cid']);
     module_invoke_all('ms_cart_qty_changed', $cart, $form_state['values']['qty_product_number']);
-  }
-  else {
+  } else {
     drupal_set_message(t('Quantity amount must be greater than 0.'), 'error');
   }
   $cart = ms_core_get_cart($form_state['cid']);
@@ -3186,7 +3223,7 @@ function ms_core_qty_ajax_callback($form, $form_state) {
  * @see ms_cart_qty_widget_form_submit()
  */
 function ms_cart_qty_widget_form_validate($form, &$form_state) {
-  $qty = (int) $form_state['values']['qty'];
+  $qty = (int)$form_state['values']['qty'];
   if ($qty <= 0) {
     form_set_error('qty', t("The quantity must be greater than 0."));
   }
@@ -3201,8 +3238,8 @@ function ms_cart_qty_widget_form_submit($form, &$form_state) {
   // Save the quantity for the product.
   db_update('ms_cart_products')
     ->fields(array(
-    'qty' => (int) $form_state['values']['qty'],
-  ))
+      'qty' => (int)$form_state['values']['qty'],
+    ))
     ->condition('cart_id', $form_state['values']['cid'])
     ->condition('cart_product_id', $form_state['values']['qty_product_number'])
     ->execute();
@@ -3221,10 +3258,9 @@ function ms_cart_qty_widget_form_submit($form, &$form_state) {
  *   The price to show in the cart and other places.
  */
 function ms_core_get_product_display_price(MsProduct $product) {
-  if (isset($product->recurring_schedule['trial_length']) AND $product->recurring_schedule['trial_length']) {
+  if (isset($product->recurring_schedule['trial_length']) && $product->recurring_schedule['trial_length']) {
     $price = $product->recurring_schedule['trial_amount'];
-  }
-  else {
+  } else {
     $price = $product->amount * $product->qty;
   }
   return $price;
@@ -3268,7 +3304,7 @@ function ms_core_get_final_price(MsOrder $order, $final = TRUE) {
 
   if (is_array($order->adjustments)) {
     foreach ($order->adjustments as $adjustment) {
-      if ($adjustment->active AND empty($adjustment->product_id)) {
+      if ($adjustment->active && empty($adjustment->product_id)) {
         if ($final OR $adjustment->weight < 1) {
           $value = ms_core_get_adjusted_price($adjustment, $price);
           $price += $value;
@@ -3332,7 +3368,7 @@ function ms_core_get_order_total(MsOrder $order) {
 function ms_core_get_product_adjusted_price($price, $adjustments, $scope = 'all', $count = 1) {
   if (is_array($adjustments)) {
     foreach ($adjustments as $adjustment) {
-      if ($adjustment->active AND ($scope == 'all' OR $adjustment->scope == $scope)) {
+      if ($adjustment->active && ($scope == 'all' OR $adjustment->scope == $scope)) {
         // If the order has multiple products and has a fixed adjustment, the
         // adjustment should be divided evenly among the products.
         if ($adjustment->type == 'fixed') {
@@ -3362,30 +3398,30 @@ function ms_core_get_product_adjusted_price($price, $adjustments, $scope = 'all'
  */
 function ms_core_get_order_products_total(MsOrder $order, $trial = TRUE, $final = TRUE) {
   switch ($order->order_type) {
+    case 'multi_recurring':
     case 'recurring':
       // If Order is Recurring, return the amount for one period.
       $price = 0;
 
-      if (isset($order->products) AND is_array($order->products)) {
+      if (isset($order->products) && is_array($order->products)) {
         foreach ($order->products as $product) {
-          if ($trial AND $product->recurring_schedule['trial_length']) {
+          if ($trial && $product->recurring_schedule['trial_length']) {
             $product_total = $product->recurring_schedule['trial_amount'];
             foreach ($order->adjustments as $adjustment) {
-              if ($adjustment->active AND !empty($adjustment->product_id) AND ((!empty($product->cart_product_id) AND $adjustment->product_id == $product->cart_product_id) OR (!empty($product->order_product_id) AND $adjustment->product_id == $product->order_product_id))) {
-                if ($final OR $adjusment->weight < 1) {
+              if ($adjustment->active && !empty($adjustment->product_id) && ((!empty($product->cart_product_id) && $adjustment->product_id == $product->cart_product_id) OR (!empty($product->order_product_id) && $adjustment->product_id == $product->order_product_id))) {
+                if ($final OR $adjustment->weight < 1) {
                   $product_total += ms_core_get_adjusted_price($adjustment, $product_total);
                 }
               }
             }
 
             $price += $product_total;
-          }
-          else {
+          } else {
             $product_total = ($product->recurring_schedule['main_amount']) ? $product->recurring_schedule['main_amount'] : $product->amount;
 
             foreach ($order->adjustments as $adjustment) {
-              if ($adjustment->active AND !empty($adjustment->product_id) AND ((!empty($product->cart_product_id) AND $adjustment->product_id == $product->cart_product_id) OR (!empty($product->order_product_id) AND $adjustment->product_id == $product->order_product_id))) {
-                if ($final OR $adjusment->weight < 1) {
+              if ($adjustment->active && !empty($adjustment->product_id) && ((!empty($product->cart_product_id) && $adjustment->product_id == $product->cart_product_id) OR (!empty($product->order_product_id) && $adjustment->product_id == $product->order_product_id))) {
+                if ($final OR $adjustment->weight < 1) {
                   $product_total += ms_core_get_adjusted_price($adjustment, $product_total);
                 }
               }
@@ -3403,18 +3439,17 @@ function ms_core_get_order_products_total(MsOrder $order, $trial = TRUE, $final 
       // If Order is Cart, return a sum of all the amounts for the products.
       $price = 0;
 
-      if (isset($order->products) AND is_array($order->products)) {
+      if (isset($order->products) && is_array($order->products)) {
         foreach ($order->products as $product) {
           if (!empty($product->recurring_schedule['fixed_date'])) {
             $product_total = $product->recurring_schedule['trial_amount'] > 0 ? $product->recurring_schedule['trial_amount'] : $product->recurring_schedule['main_amount'];
-          }
-          else {
+          } else {
             $product_total = $product->amount * $product->qty;
           }
 
           foreach ($order->adjustments as $adjustment) {
-            if ($adjustment->active AND !empty($adjustment->product_id) AND ((!empty($product->cart_product_id) AND $adjustment->product_id == $product->cart_product_id) OR (!empty($product->order_product_id) AND $adjustment->product_id == $product->order_product_id))) {
-              if ($final OR $adjusment->weight < 1) {
+            if ($adjustment->active && !empty($adjustment->product_id) && ((!empty($product->cart_product_id) && $adjustment->product_id == $product->cart_product_id) OR (!empty($product->order_product_id) && $adjustment->product_id == $product->order_product_id))) {
+              if ($final OR $adjustment->weight < 1) {
                 $product_total += ms_core_get_adjusted_price($adjustment, $product_total);
               }
             }
@@ -3439,8 +3474,6 @@ function ms_core_get_order_products_total(MsOrder $order, $trial = TRUE, $final 
  *   An associative array of fields to use on the checkout page.
  */
 function ms_core_get_checkout_fields(MsOrder $order) {
-  $fields = array();
-
   // Invoke hook_ms_checkout_fields to get the fields.
   $fields = module_invoke_all('ms_checkout_fields', $order);
 
@@ -3461,8 +3494,6 @@ function ms_core_get_checkout_fields(MsOrder $order) {
  *   An associative array of fields to use on the cart page.
  */
 function ms_core_get_cart_fields($cart) {
-  $fields = array();
-
   // Invoke hook_ms_checkout_fields to get the fields.
   $fields = module_invoke_all('ms_cart_fields', $cart);
 
@@ -3511,7 +3542,7 @@ function ms_core_sort_fields($a, $b, $key = 'weight') {
  */
 function ms_core_add_order_adjustment(MsOrder $order, MsAdjustment $adjustment, $single = FALSE) {
   if ($single) {
-    $result = db_delete('ms_order_adjustments')
+    db_delete('ms_order_adjustments')
       ->condition('oid', $order->oid)
       ->condition('id', $adjustment->id)
       ->execute();
@@ -3539,7 +3570,7 @@ function ms_core_add_order_adjustment(MsOrder $order, MsAdjustment $adjustment, 
 function ms_core_add_cart_adjustment(MsAdjustment $adjustment, $single = FALSE) {
   $cart = ms_core_get_cart();
   if ($single) {
-    $result = db_delete('ms_cart_adjustments')
+    db_delete('ms_cart_adjustments')
       ->condition('cart_id', $cart->cart_id)
       ->condition('id', $adjustment->id)
       ->execute();
@@ -3560,7 +3591,7 @@ function ms_core_add_cart_adjustment(MsAdjustment $adjustment, $single = FALSE) 
  * @ingroup ms_core_api
  */
 function ms_core_remove_order_adjustment(MsAdjustment $adjustment, MsOrder $order) {
-  $result = db_delete('ms_order_adjustments')
+  db_delete('ms_order_adjustments')
     ->condition('oid', $order->oid)
     ->condition('id', $adjustment->id)
     ->execute();
@@ -3575,7 +3606,7 @@ function ms_core_remove_order_adjustment(MsAdjustment $adjustment, MsOrder $orde
  * @ingroup ms_core_api
  */
 function ms_core_remove_order_adjustments(MsOrder $order) {
-  $result = db_delete('ms_order_adjustments')
+  db_delete('ms_order_adjustments')
     ->condition('oid', $order->oid)
     ->execute();
 }
@@ -3585,6 +3616,8 @@ function ms_core_remove_order_adjustments(MsOrder $order) {
  *
  * @param MsOrder $order
  *   The Recurring Order to get the Cancellation URL for.
+ * @param int $product_id
+ *   (Optional) The order product id. Only applies to multi_recurring orders.
  *
  * @return string|false
  *   The URL for Cancellation for the correct Gateway, or FALSE if it is not
@@ -3592,31 +3625,23 @@ function ms_core_remove_order_adjustments(MsOrder $order) {
  *
  * @ingroup ms_core_api
  */
-function ms_core_get_cancel_url(MsOrder $order) {
-  if ($order->order_type == 'recurring' AND $gateway = ms_core_get_payment_gateway($order->gateway)) {
+function ms_core_get_cancel_url(MsOrder $order, $product_id = NULL) {
+  if (in_array($order->order_type, array('recurring', 'multi_recurring')) && ($gateway = ms_core_get_payment_gateway($order->gateway))) {
     switch ($order->status) {
       case 'active':
-        if (isset($gateway['cancel_url']) AND $gateway['cancel_url']) {
-          $cancel_url = $gateway['cancel_url']($order);
+        if (isset($gateway['cancel_url']) && $gateway['cancel_url']) {
+          $cancel_url = $gateway['cancel_url']($order, $product_id);
           foreach (module_implements('ms_core_cancel_url_override') as $module) {
             $function = $module . '_ms_core_cancel_url_override';
-            $function($cancel_url);
+            $function($cancel_url, $product_id);
           }
           return $cancel_url;
         }
-        else {
-          return FALSE;
-        }
-        break;
-
-      default:
-        return FALSE;
         break;
     }
   }
-  else {
-    return FALSE;
-  }
+
+  return FALSE;
 }
 
 /**
@@ -3632,15 +3657,13 @@ function ms_core_get_cancel_url(MsOrder $order) {
  * @ingroup ms_core_api
  */
 function ms_core_get_billing_url(MsOrder $order) {
-  if ($order->order_type == 'recurring' AND $gateway = ms_core_get_payment_gateway($order->gateway)) {
-    if (isset($gateway['billing_url']) AND $gateway['billing_url']) {
+  if ($order->order_type == 'recurring' && ($gateway = ms_core_get_payment_gateway($order->gateway))) {
+    if (isset($gateway['billing_url']) && $gateway['billing_url']) {
       return $gateway['billing_url']($order);
-    }
-    else {
+    } else {
       return FALSE;
     }
-  }
-  else {
+  } else {
     return FALSE;
   }
 }
@@ -3652,6 +3675,8 @@ function ms_core_get_billing_url(MsOrder $order) {
  *   The Recurring Order to get the Modify URL for.
  * @param string $id
  *   The id of the new product.
+ * @param int $product_id
+ *   (Optional) The order product id to modify. Defaults to none.
  *
  * @return string|false
  *   The URL for Modify for the correct Gateway, or FALSE if it is not
@@ -3659,18 +3684,16 @@ function ms_core_get_billing_url(MsOrder $order) {
  *
  * @ingroup ms_core_api
  */
-function ms_core_get_modify_url(MsOrder $order, $id) {
-  if (isset($order->gateway) AND $gateway = ms_core_get_payment_gateway($order->gateway)) {
-    if (isset($gateway['modify_url']) AND $gateway['modify_url']) {
-      return $gateway['modify_url']($order, $id);
-    }
-    else {
-      return FALSE;
+function ms_core_get_modify_url(MsOrder $order, $id, $product_id = NULL) {
+  if (isset($order->gateway) && ($gateway = ms_core_get_payment_gateway($order->gateway))) {
+    if (!empty($gateway['modify_url'])) {
+      $url = $gateway['modify_url']($order, $id, $product_id);
+
+      return $url;
     }
   }
-  else {
-    return FALSE;
-  }
+
+  return FALSE;
 }
 
 /**
@@ -3771,19 +3794,16 @@ function ms_core_get_order_title(MsOrder $order, $length = 255, $modify = FALSE)
       'ms_core_order' => $order,
     );
     $title = token_replace($template, $tokens);
-  }
-  else {
+  } else {
     if ($modify) {
       $title = variable_get('site_name', '') . ' - ' . $order->data['new_product']->name;
-    }
-    elseif (count($order->products) == 1) {
+    } elseif (count($order->products) == 1) {
       $title = variable_get('site_name', '') . ' - ' . $order->products[0]->name;
-    }
-    else {
+    } else {
       $title = variable_get('site_name', '') . ' - ' . t('Order', array(), array('context' => 'ms_core')) . ' #' . $order->order_number;
     }
 
-    if (variable_get('ms_core_order_title_recurring', TRUE) AND $order->order_type == 'recurring') {
+    if (variable_get('ms_core_order_title_recurring', TRUE) && $order->order_type == 'recurring') {
       $title .= ' - ' . ms_core_get_recurring_string($order->recurring_schedule, TRUE);
     }
   }
@@ -3873,7 +3893,7 @@ function ms_core_new_payment($oid, $gateway, $type, $amount = 0, $currency = '')
  *
  * @ingroup ms_core_api
  */
-function ms_core_add_order_product(MsOrder $order, MsProduct $product, $single = FALSE) {
+function ms_core_add_order_product(MsOrder $order, MsProduct &$product, $single = FALSE) {
   // Set some defaults.
   if (!isset($product->data)) {
     $product->data = array();
@@ -3893,7 +3913,7 @@ function ms_core_add_order_product(MsOrder $order, MsProduct $product, $single =
   }
 
   if ($single) {
-    $result = db_delete('ms_order_products')
+    db_delete('ms_order_products')
       ->condition('oid', $order->oid)
       ->condition('module', $product->module)
       ->condition('id', $product->id)
@@ -3902,10 +3922,10 @@ function ms_core_add_order_product(MsOrder $order, MsProduct $product, $single =
 
   // Make sure that if a recurring product is being added, to clear out other
   // products.
-  if ($product->type == 'recurring') {
+  if ($product->type == 'recurring' && !ms_core_multi_recurring_supported()) {
     $order->order_type = 'recurring';
     ms_core_order_save($order);
-    $result = db_delete('ms_order_products')
+    db_delete('ms_order_products')
       ->condition('oid', $order->oid)
       ->execute();
   }
@@ -3920,7 +3940,7 @@ function ms_core_add_order_product(MsOrder $order, MsProduct $product, $single =
  *
  * @param MsProduct $product
  *   The product object.
- * @param MsOrder $order.
+ * @param MsOrder $order .
  *   The order to remove the product from.
  *
  * @ingroup ms_core_api
@@ -3958,17 +3978,10 @@ function ms_core_add_cart_product(MsProduct $product, $single = FALSE, $message 
   // Give other modules a chance to act on the product being added to the cart.
   module_invoke_all('ms_cart_add', $cart, $product);
   drupal_alter('ms_cart_added_product', $product, $cart);
-  if ($single) {
-    $result = db_delete('ms_cart_products')
-      ->condition('cart_id', $cart->cart_id)
-      ->condition('module', $product->module)
-      ->condition('id', $product->id)
-      ->execute();
-  }
 
   // Make sure that only one product of this type is entered if single is true.
   if ($single) {
-    $result = db_delete('ms_cart_products')
+    db_delete('ms_cart_products')
       ->condition('cart_id', $cart->cart_id)
       ->condition('module', $product->module)
       ->condition('id', $product->id)
@@ -3976,21 +3989,16 @@ function ms_core_add_cart_product(MsProduct $product, $single = FALSE, $message 
   }
 
   // Make sure that the order is either cart OR recurring.
-  // @todo - Allow carts to contain both recurring and non-recurring products
-  //   - Charge the non-recurring products as an initial adjustment (which would
-  //     be translated to a trial payment in most gateways)
-  //   - Still would only allow for one recurring product per cart since the
-  //     recurring schedules could be different...
-  if ($cart->order_type != $product->type) {
-    $result = db_delete('ms_cart_products')
+  if (!ms_core_multi_recurring_supported() && $cart->order_type != $product->type) {
+    db_delete('ms_cart_products')
       ->condition('cart_id', $cart->cart_id)
       ->execute();
   }
 
   // Make sure that if a recurring product is being added, to clear out other
   // products.
-  if ($product->type == 'recurring') {
-    $result = db_delete('ms_cart_products')
+  if (!ms_core_multi_recurring_supported() && $product->type == 'recurring') {
+    db_delete('ms_cart_products')
       ->condition('cart_id', $cart->cart_id)
       ->execute();
   }
@@ -4005,7 +4013,7 @@ function ms_core_add_cart_product(MsProduct $product, $single = FALSE, $message 
 
   drupal_write_record('ms_cart_products', $product);
 
-  if ($message AND variable_get('ms_cart_add_item_msg', TRUE)) {
+  if ($message && variable_get('ms_cart_add_item_msg', TRUE)) {
     drupal_set_message(t("Added %title to your <a href='@cart_url'>Cart</a>. <a href='@checkout_url'>Checkout</a>", array(
       '%title' => $product->name,
       '@cart_url' => url('ms/cart'),
@@ -4095,10 +4103,10 @@ function ms_core_set_recurring_schedule(MsOrder $order, $recurring_schedule) {
   $order->recurring_schedule = $recurring_schedule;
 
   // Update into Database.
-  $result = db_update('ms_orders')
+  db_update('ms_orders')
     ->fields(array(
-    'recurring_schedule' => serialize($order->recurring_schedule),
-  ))
+      'recurring_schedule' => serialize($order->recurring_schedule),
+    ))
     ->condition('oid', $order->oid)
     ->execute();
 
@@ -4116,8 +4124,6 @@ function ms_core_set_recurring_schedule(MsOrder $order, $recurring_schedule) {
  */
 function ms_core_get_order_actions($oid) {
   $order = ms_core_order_load($oid);
-
-  $actions = array();
 
   $actions = module_invoke_all('ms_recurring_schedule_actions', $order);
 
@@ -4247,6 +4253,7 @@ function ms_core_get_cart_products($cid) {
     $product->initialize($row);
     $products[] = $product;
   }
+
   return $products;
 }
 
@@ -4291,7 +4298,7 @@ function ms_core_get_cart_adjustments($cart) {
     // Remove orphaned ajdustments.
     if ($adjustment->product_id) {
       $orphaned = TRUE;
-      foreach ($cart->products as $prod_num => $product) {
+      foreach ($cart->products as $product) {
         if ($adjustment->product_id == $product->cart_product_id) {
           $orphaned = FALSE;
         }
@@ -4309,7 +4316,7 @@ function ms_core_get_cart_adjustments($cart) {
 /**
  * Gets the adjustments that are associated with an order.
  *
- * @param object $order
+ * @param MsOrder $order
  *   The order object.
  *
  * @return array
@@ -4317,7 +4324,7 @@ function ms_core_get_cart_adjustments($cart) {
  *
  * @ingroup ms_core_api
  */
-function ms_core_get_order_adjustments($order) {
+function ms_core_get_order_adjustments(MsOrder $order) {
   $result = db_query("SELECT * FROM {ms_order_adjustments} WHERE oid = :oid ORDER BY weight", array(':oid' => $order->oid));
   $adjustments = array();
   foreach ($result as $adjustment) {
@@ -4325,7 +4332,7 @@ function ms_core_get_order_adjustments($order) {
     // Remove orphaned adjustments.
     if ($adjustment->product_id) {
       $orphaned = TRUE;
-      foreach ($order->products as $prod_num => $product) {
+      foreach ($order->products as $product) {
         if ($adjustment->product_id == $product->order_product_id) {
           $orphaned = FALSE;
         }
@@ -4473,10 +4480,6 @@ function ms_core_load_order_product($id) {
 function ms_core_order_new($type = 'cart', $uid = 0, $oid = 0) {
   $order = new MsOrder();
 
-  if ($uid > 0) {
-    $account = user_load($uid);
-  }
-
   // Set the Order Variables.
   $order->uid = $uid;
   $order->oid = $oid;
@@ -4503,8 +4506,7 @@ function ms_core_load_session_order() {
   if (isset($_SESSION['ms_oid'])) {
     $order = ms_core_order_load($_SESSION['ms_oid']);
     return $order;
-  }
-  else {
+  } else {
     return FALSE;
   }
 }
@@ -4542,8 +4544,7 @@ function ms_core_order_load_by_rec_id($rid) {
 function ms_core_order_number($order) {
   if (variable_get('ms_core_order_number_mode', 'sequential') == 'sequential') {
     return $order->oid;
-  }
-  else {
+  } else {
     return $order->order_key;
   }
 }
@@ -4607,15 +4608,14 @@ function ms_core_generate_recurring_id($length = 10) {
  */
 function ms_core_get_random_key($length) {
   $random = "";
-  srand((double) microtime() * 1000000);
+  srand((double)microtime() * 1000000);
   $letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   $numbers = "123456789";
 
   for ($i = 0; $i < $length; $i++) {
     if ($i % 2) {
       $random .= substr($numbers, (rand() % (strlen($numbers))), 1);
-    }
-    else {
+    } else {
       $random .= substr($letters, (rand() % (strlen($letters))), 1);
     }
   }
@@ -4705,7 +4705,13 @@ function ms_core_order_load_data($oid) {
  * @ingroup ms_core_api
  */
 function ms_core_get_order_rec_id($oid) {
-  return db_query("SELECT recurring_id FROM {ms_payments} WHERE oid = :oid AND recurring_id <> '' ORDER BY created DESC", array(':oid' => $oid))->fetchField();
+  return db_select('ms_payments', 'p')
+    ->fields('p', array('recurring_id'))
+    ->condition('p.oid', $oid)
+    ->condition('p.recurring_id', '', '<>')
+    ->orderBy('p.created', 'DESC')
+    ->execute()
+    ->fetchField();
 }
 
 /**
@@ -4731,8 +4737,7 @@ function ms_core_order_load($oid) {
     // it is loaded.
     module_invoke_all('ms_order_load', $order);
     return $order;
-  }
-  else {
+  } else {
     ms_core_log_error('ms_core', 'Error loading an order: !oid', array('!oid' => $oid));
     return FALSE;
   }
@@ -4807,7 +4812,8 @@ function ms_core_order_save(MsOrder $order) {
 
   // Load the old order object and see if the status has changed. If so, call
   // hook_ms_order_status_change.
-  if ($old_order = ms_core_order_load($order->oid) AND $old_order->status != $order->status) {
+  $old_order = ms_core_order_load($order->oid);
+  if ($old_order && $old_order->status != $order->status) {
     foreach (module_implements('ms_order_status_change') as $module) {
       $function = $module . '_ms_order_status_change';
       $order = call_user_func($function, $old_order->status, $order->status, $order);
@@ -4822,23 +4828,38 @@ function ms_core_order_save(MsOrder $order) {
  *
  * @param MsOrder $order
  *   The order object to get the last payment for.
+ * @param bool $non_zero
+ *   (Optional) Whether payments for $0 should be ignored. Defaults to TRUE.
+ * @param int $pid
+ *   (Optional) The order product id. Only applies to multi_recurring orders.
  *
  * @return MsPayment|false
  *   The last payment or FALSE if no payments.
  */
-function ms_core_get_last_payment(MsOrder $order, $non_zero = TRUE) {
-  if (!empty($order->payments) AND is_array($order->payments)) {
-    $thepayment = $order->payments[0];
-    foreach ($order->payments as $payment) {
-      if (!$non_zero OR ($non_zero AND $payment->amount > 0)) {
-        $thepayment = $payment;
+function ms_core_get_last_payment(MsOrder $order, $non_zero = TRUE, $pid = NULL) {
+  if (!empty($order->payments) && is_array($order->payments)) {
+    if ($pid) {
+      $thepayment = FALSE;
+      foreach ($order->payments as $payment) {
+        // If $pid, see if the payment is for this product.
+        if (!empty($payment->data['product_id']) && $payment->data['product_id'] == $pid && (!$non_zero OR ($non_zero && $payment->amount > 0))) {
+          $thepayment = $payment;
+        }
       }
+      return $thepayment;
+
+    } else {
+      $thepayment = FALSE;
+      foreach ($order->payments as $payment) {
+        if (!$non_zero OR ($non_zero && $payment->amount > 0)) {
+          $thepayment = $payment;
+        }
+      }
+      return $thepayment;
     }
-    return $thepayment;
   }
-  else {
-    return FALSE;
-  }
+
+  return FALSE;
 }
 
 /**
@@ -4848,9 +4869,6 @@ function ms_core_get_last_payment(MsOrder $order, $non_zero = TRUE) {
  *
  * @param MsPayment $payment
  *   The MsPayment object to enter.
- * @param bool $check
- *   (optional) Whether or not to check if the payment is valid (price matches).
- *   Defaults to TRUE.
  * @param bool $notify
  *   (optional) Whether or not to run the hooks to let other modules act on
  *   this payment. Defaults to TRUE.
@@ -4859,7 +4877,7 @@ function ms_core_get_last_payment(MsOrder $order, $non_zero = TRUE) {
  *
  * @ingroup ms_core_api
  */
-function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE, $insert = TRUE) {
+function ms_core_enter_payment(MsPayment $payment, $notify = TRUE, $insert = TRUE) {
   unset($payment->pid);
   // Set some defaults.
   $payment->created = (isset($payment->created)) ? $payment->created : REQUEST_TIME;
@@ -4889,7 +4907,7 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
   $order->currency = $payment->currency;
 
   ms_core_log('ms_core', 'A payment has been entered for an order. Here are the details: Order: !order Payment: !payment',
-      array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
+    array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
 
   // Save the order.
   ms_core_order_save($order);
@@ -4897,13 +4915,7 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
   // Reload the order.
   $order = ms_core_order_load($order->oid);
 
-  // Make sure the payment is for the correct amount.
-  if ($check AND $order->secured) {
-    $type = ms_core_valid_payment($order, $payment);
-  }
-  else {
-    $type = $payment->type;
-  }
+  $type = $payment->type;
 
   if ($type) {
     ms_core_set_order_status_from_payment($order, $payment);
@@ -4920,29 +4932,33 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
         break;
 
       case 'rec_signup':
-        ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule);
-        if ($payment->amount) {
-          ms_core_add_history_item($order, 0, t('Payment logged: @amount',
-            array('@amount' => ms_core_format_money($payment->amount, $order->currency))), TRUE);
+        foreach ($order->products as $product) {
+          if ($product->type == 'recurring') {
+            ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $product->recurring_schedule, REQUEST_TIME, $product->order_product_id);
+            if ($payment->amount) {
+              ms_core_add_history_item($order, 0, t('Payment logged: @amount',
+                array('@amount' => ms_core_format_money($payment->amount, $order->currency))), TRUE);
+            }
+          }
         }
-      break;
+        break;
 
       case 'rec_payment':
-        ms_core_increment_recurring_schedule($order->oid);
+        ms_core_increment_recurring_schedule($order->oid, REQUEST_TIME, !empty($payment->data['product_id']) ? $payment->data['product_id'] : NULL);
         if ($payment->amount) {
           ms_core_add_history_item($order, 0, t('Payment logged: @amount',
             array('@amount' => ms_core_format_money($payment->amount, $order->currency))), TRUE);
         }
-      break;
+        break;
 
       case 'failed':
         // Mark the recurring_schedule next_payment date in 3 days.
-        if ($recurring_schedule = ms_core_load_recurring_schedule($order->oid)) {
+        if ($recurring_schedule = ms_core_load_recurring_schedule($order->oid, !empty($payment->data['product_id']) ? $payment->data['product_id'] : NULL)) {
           db_update('ms_recurring_schedules')
             ->fields(array(
-            'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
-            'failed_payments' => $recurring_schedule->failed_payments + 1,
-          ))
+              'next_payment' => strtotime('+3 days', $recurring_schedule->next_payment),
+              'failed_payments' => $recurring_schedule->failed_payments + 1,
+            ))
             ->condition('id', $recurring_schedule->id)
             ->execute();
         }
@@ -4951,7 +4967,7 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
       case 'rec_cancel':
         // Mark the recurring schedule as cancelled, and adjust the next payment
         // and expiration.
-        ms_core_cancel_recurring_schedule($order->oid);
+        ms_core_cancel_recurring_schedule($order->oid, !empty($payment->data['product_id']) ? $payment->data['product_id'] : NULL);
         break;
 
       case 'rec_modify':
@@ -4963,19 +4979,35 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
           return FALSE;
         }
 
+        // Delete the old product from the order.
+        if (!empty($order->data['product_id']) && $old_product = ms_core_load_order_product($order->data['product_id'])) {
+          // Also delete the old recurring schedule for the old product.
+          db_delete('ms_recurring_schedules')
+            ->condition('oid', $order->oid)
+            ->condition('pid', $old_product->order_product_id)
+            ->execute();
+          ms_core_remove_order_product($old_product, $order);
+          $order = ms_core_order_load($order->oid);
+        } else {
+          // Clear out old products.
+          db_delete('ms_order_products')
+            ->condition('oid', $order->oid)
+            ->execute();
+        }
+
         // Replace the Old Product with the New Product.
         $order = ms_core_add_order_product($order, $new_product, TRUE);
         $order = ms_core_set_recurring_schedule($order, $new_product->recurring_schedule);
 
         // Create a recurring schedule if one doesn't exist.
-        $recurring_schedule = ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule);
+        $recurring_schedule = ms_core_create_recurring_schedule($order->oid, $order->gateway, ms_core_get_order_module($order), $order->recurring_schedule, REQUEST_TIME, $new_product->order_product_id);
 
         // Merge in the new terms.
-        $recurring_schedule = (object) array_merge((array) $recurring_schedule, $order->recurring_schedule);
+        $recurring_schedule = (object)array_merge((array)$recurring_schedule, $order->recurring_schedule);
 
         $last_payment = time();
         $recurring_schedule->status = 'active';
-        $recurring_schedule->next_payment = ms_core_calculate_next_payment_date($order, $last_payment);
+        $recurring_schedule->next_payment = ms_core_calculate_next_payment_date($order, $last_payment); // @fixme - This may be the wrong date for multi_recurring orders.
         $recurring_schedule->expiration = ms_core_calculate_expiration_date($order->recurring_schedule);
         $recurring_schedule->modified = time();
 
@@ -4989,7 +5021,7 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
 
       case 'rec_eot':
         // Change the recurring schedule.
-        ms_core_change_recurring_schedule_status($order->oid, 'expiring');
+        ms_core_change_recurring_schedule_status($order->oid, 'expiring', !empty($payment->data['product_id']) ? $payment->data['product_id'] : NULL);
         break;
     }
 
@@ -5008,12 +5040,22 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
 
       // Call the hook for each product.
       foreach ($order->products as $product) {
-        // Invoke all ms_order_payment Hooks.
-        module_invoke_all('ms_order_payment', $type, $product, $order, $payment);
+        $payment_type = $type;
+        if ($product->type == 'cart' && !in_array($type, array('cart', 'rec_modify'))) {
+          $payment_type = 'cart'; // Force cart products to have the cart type
+          $payment->type = 'cart';
+        }
+        if (is_array($payment->data) && !empty($payment->data['product_id'])) {
+          // Only invoke the hook for the product referenced by the payment.
+          if ($product->order_product_id == $payment->data['product_id'] || $product->id == $payment->data['product_id']) {
+            module_invoke_all('ms_order_payment', $payment_type, $product, $order, $payment);
+          }
+        } else {
+          module_invoke_all('ms_order_payment', $payment_type, $product, $order, $payment);
+        }
       }
     }
-  }
-  else {
+  } else {
     ms_core_add_history_item($order, 0, t('Error logging payment: @amount',
       array('@amount' => ms_core_format_money($payment->amount, $payment->currency, 'payment_amount'))), TRUE);
     ms_core_log_error('ms_core', 'The payment could not be acted upon: !payment.', array('!payment' => ms_core_print_r($payment)));
@@ -5024,6 +5066,22 @@ function ms_core_enter_payment(MsPayment $payment, $check = TRUE, $notify = TRUE
  * Implements hook_ms_order_payment_total().
  */
 function ms_core_ms_order_payment_total($type, $order, $payment) {
+  // Send the thankyou email if applicable.
+  if (variable_get('ms_core_order_thankyou_mail_body', '')) {
+    switch ($type) {
+      case 'cart':
+      case 'rec_signup':
+        $account = user_load($order->uid);
+        $params = array(
+          'user' => $account,
+          'ms_core_order' => $order,
+          'ms_core_payment' => $payment,
+        );
+        drupal_mail('ms_core', 'thankyou', $account->mail, user_preferred_language($account), $params);
+        break;
+    }
+  }
+
   // Trigger the rule.
   if (module_exists('rules')) {
     $account = user_load($order->uid);
@@ -5042,23 +5100,35 @@ function ms_core_ms_order_payment_total($type, $order, $payment) {
 function ms_core_set_order_status_from_payment(MsOrder $order, MsPayment $payment) {
   switch ($payment->type) {
     case 'rec_payment':
-    case 'rec_signup':
     case 'rec_modify':
+      if ($order->order_type != 'multi_recurring') {
+        ms_core_set_order_status($order, 'active');
+      }
+      break;
+
+    case 'rec_signup':
       ms_core_set_order_status($order, 'active');
       break;
 
     case 'rec_eot':
+      if ($order->order_type != 'multi_recurring') {
+        ms_core_set_order_status($order, 'completed');
+      }
+      break;
+
     case 'cart':
       ms_core_set_order_status($order, 'completed');
       break;
 
     case 'rec_cancel':
-      ms_core_set_order_status($order, 'cancelled');
+      if ($order->order_type != 'multi_recurring') {
+        ms_core_set_order_status($order, 'cancelled');
+      }
       break;
 
     default:
       ms_core_log_error('ms_core', 'Setting order status to pending because of payment type %type',
-       array('%type' => $payment->type), WATCHDOG_WARNING);
+        array('%type' => $payment->type), WATCHDOG_WARNING);
       ms_core_set_order_status($order, 'pending');
       break;
   }
@@ -5083,8 +5153,8 @@ function ms_core_set_order_status(MsOrder $order, $status) {
   $order->status = $status;
   $result = db_update('ms_orders')
     ->fields(array(
-    'status' => $status,
-  ))
+      'status' => $status,
+    ))
     ->condition('oid', $order->oid)
     ->execute();
   // Call hook_ms_order_status_change.
@@ -5127,6 +5197,7 @@ function ms_core_get_order_statuses() {
     'cancelled' => t('Cancelled'),
     'pending' => t('Pending Payment'),
     'invoiced' => t('Invoiced'),
+    'fulfilled' => t('Fulfilled'),
     'checkout' => t('In Checkout'),
   );
 }
@@ -5166,7 +5237,7 @@ function ms_core_get_order_type(MsOrder $order) {
  *   The translated payment type.
  */
 function ms_core_get_payment_type($type) {
-  $types = ms_core_get_payment_types($type);
+  $types = ms_core_get_payment_types();
   return isset($types[$type]) ? $types[$type] : $type;
 }
 
@@ -5187,17 +5258,17 @@ function ms_core_get_payment_types($type = 'all') {
   $types = array(
     'refund' => t('Refund'),
     'reversal' => t('Reversal'),
-    'failed' => t('Recurring Payment Failed'),
+    'failed' => t('Payment Failed'),
     'pending' => t('Pending'),
   );
   if ($type == 'all' || $type == 'recurring') {
     $types += array(
-      'rec_payment' => t('Recurring Payment'),
-      'rec_signup' => t('Recurring Signup'),
-      'rec_cancel' => t('Recurring Cancellation'),
-      'rec_modify' => t('Recurring Modification'),
+      'rec_payment' => t('Payment'),
+      'rec_signup' => t('Signup'),
+      'rec_cancel' => t('Cancellation'),
+      'rec_modify' => t('Modification'),
       'rec_downgrade' => t('Downgrade'),
-      'rec_eot' => t('Recurring End of Term'),
+      'rec_eot' => t('End of Term'),
     );
   }
   if ($type == 'all' || $type == 'cart') {
@@ -5214,72 +5285,63 @@ function ms_core_get_payment_types($type = 'all') {
  *
  * @param MsOrder $order
  *   The order object.
- * @param MsPayment $payment
- *   The payment object.
+ * @param string $type .
+ *   The payment type.
  *
  * @return string|false
  *   The string of the payment type, or FALSE if the amount did not validate.
  */
-function ms_core_valid_payment(MsOrder $order, MsPayment $payment) {
-  switch ($payment->type) {
+function ms_core_valid_payment(MsOrder $order, $type, $recurring_schedule) {
+  if (!is_array($recurring_schedule)) {
+    $recurring_schedule = array('main_amount' => $recurring_schedule);
+  }
+
+  switch ($type) {
     case 'rec_payment':
-      if (ms_core_recurring_schedule_match($payment->recurring_schedule, $order->recurring_schedule)) {
-        return 'rec_payment';
-      }
-      else {
-        ms_core_log_error('ms_core', 'Error: Payment received for incorrect amount. Here are the defails: Order: !order Payment Details: !payment',
-          array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
-        return FALSE;
-      }
-
-    case 'rec_signup':
-      // Check if this is a modify from a non-recurring item.
-      if (isset($order->data['new_product']) AND $new_product = $order->data['new_product'] AND $new_product->id) {
-        if (ms_core_recurring_schedule_match($payment->recurring_schedule, $new_product->recurring_schedule, FALSE)) {
-          return 'rec_modify';
-        }
-        else {
-          ms_core_log_error('ms_core', 'Error: Invalid Modification Attempt. Here are the defails: New Product: !order Payment Details: !payment',
-            array('!order' => ms_core_print_r($new_product), '!payment' => ms_core_print_r($payment)));
-          return FALSE;
-        }
-      }
-      else {
-        if (ms_core_recurring_schedule_match($payment->recurring_schedule, $order->recurring_schedule)) {
-          return 'rec_signup';
-        }
-        else {
-          ms_core_log_error('ms_core', 'Error: Payment received for incorrect amount. Here are the defails: Order: !order Payment Details: !payment',
-            array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
-          return FALSE;
-        }
-      }
-
-    case 'cart':
-      if ($payment->amount >= $order->amount) {
-        return 'cart';
-      }
-      else {
-        ms_core_log_error('ms_core', 'Error: Payment received for incorrect amount. Here are the defails: Order: !order Payment Details: !payment',
-          array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($payment)));
-        return FALSE;
-      }
-
-    case 'rec_modify':
-      $new_product = $order->data['new_product'];
-      if (ms_core_recurring_schedule_match($payment->recurring_schedule, $new_product->recurring_schedule, FALSE)) {
-        return 'rec_modify';
-      }
-      else {
-        ms_core_log_error('ms_core', 'Error: Invalid Modification Attempt. Here are the defails: New Product: !order Payment Details: !payment',
-          array('!order' => ms_core_print_r($new_product), '!payment' => ms_core_print_r($payment)));
+      if (!ms_core_recurring_schedule_match($order->recurring_schedule, $recurring_schedule)) {
+        ms_core_log_error('ms_core', 'Error: Recurring payment received for incorrect amount. Here are the defails: Order: !order Payment Details: !payment',
+          array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($recurring_schedule)));
         return FALSE;
       }
       break;
 
-    default:
-      return $payment->type;
+    case 'rec_signup':
+      // Check if this is a modify from a non-recurring item.
+      if (!empty($order->data['new_product']->id)) {
+        if (!ms_core_recurring_schedule_match($order->data['new_product']->recurring_schedule, $recurring_schedule, FALSE)) {
+          ms_core_log_error('ms_core', 'Error: Invalid Modification Attempt. Here are the defails: New Product: !order Payment Details: !payment',
+            array('!order' => ms_core_print_r($order->data['new_product']), '!payment' => ms_core_print_r($recurring_schedule)));
+          return FALSE;
+        }
+      } else {
+        if (!ms_core_recurring_schedule_match($order->recurring_schedule, $recurring_schedule)) {
+          ms_core_log_error('ms_core', 'Error: Signup payment received for incorrect amount. Here are the defails: Order: !order Payment Details: !payment',
+            array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($recurring_schedule)));
+          return FALSE;
+        }
+      }
+
+      break;
+
+    case 'cart':
+      if (round(floatval($recurring_schedule['main_amount']), 2) != round(floatval($order->amount), 2)) {
+        ms_core_log_error('ms_core', 'Error: Payment received for incorrect amount. Here are the defails: Order: !order Payment Details: !payment',
+          array('!order' => ms_core_print_r($order), '!payment' => ms_core_print_r($recurring_schedule)));
+        return FALSE;
+      }
+      break;
+
+    case 'rec_modify':
+      $new_product = $order->data['new_product'];
+      if (!ms_core_recurring_schedule_match($new_product->recurring_schedule, $recurring_schedule, FALSE)) {
+        ms_core_log_error('ms_core', 'Error: Invalid Modification Attempt. Here are the defails: New Product: !order Payment Details: !payment',
+          array('!order' => ms_core_print_r($new_product), '!payment' => ms_core_print_r($recurring_schedule)));
+        return FALSE;
+      }
+      break;
   }
+
+  return TRUE;
 }
 
 /**
@@ -5296,7 +5358,7 @@ function ms_core_valid_payment(MsOrder $order, MsPayment $payment) {
  *   Whether or not the two recurring schedules match.
  */
 function ms_core_recurring_schedule_match($rs1, $rs2, $match_trial = TRUE) {
-  if ((string) $rs1['main_amount'] != (string) $rs2['main_amount']) {
+  if (round(floatval($rs1['main_amount']), 2) != round(floatval($rs2['main_amount']), 2)) {
     return FALSE;
   }
   if ($rs1['main_unit'] != $rs2['main_unit']) {
@@ -5305,9 +5367,9 @@ function ms_core_recurring_schedule_match($rs1, $rs2, $match_trial = TRUE) {
   if ($rs1['main_length'] != $rs2['main_length']) {
     return FALSE;
   }
-  if ($match_trial) {
+  if ($match_trial && $rs1['has_trial']) {
     if ($rs1['trial_length']) {
-      if ((string) $rs1['trial_amount'] != (string) $rs2['trial_amount']) {
+      if (round(floatval($rs1['trial_amount']), 2) != round(floatval($rs2['trial_amount']), 2)) {
         return FALSE;
       }
       if ($rs1['trial_unit'] != $rs2['trial_unit']) {
@@ -5327,13 +5389,13 @@ function ms_core_recurring_schedule_match($rs1, $rs2, $match_trial = TRUE) {
  *
  * @param string $name
  *   Name of the variable, as used in variable_get.
- * @param object $default
+ * @param $default
  *   Default value if not set, as used in variable get.
  * @param object $object
  *   An order or product object, which has a 'data' array property containing
  *   the override settings.
  *
- * @return object
+ * @return mixed
  *   The default variable if it isn't overridden, or the overridden variable if
  *   it is.
  *
@@ -5361,10 +5423,10 @@ function ms_core_get_overridden_settings($override_settings) {
   $overrides = array();
   global $conf;
 
-  if (!empty($override_settings) AND is_array($override_settings)) {
-    foreach ($override_settings as $module => $settings) {
+  if (!empty($override_settings) && is_array($override_settings)) {
+    foreach ($override_settings as $settings) {
       foreach ($settings as $key => $value) {
-        if (isset($conf[$key]) AND $value != variable_get($key, $conf[$key])) {
+        if (isset($conf[$key]) && $value != variable_get($key, $conf[$key])) {
           $overrides[$key] = $value;
         }
       }
@@ -5384,7 +5446,7 @@ function ms_core_get_overridden_settings($override_settings) {
  */
 function ms_core_extract_override_settings($parent, &$overrides) {
   foreach (element_children($parent) as $child_name) {
-    if (!empty($parent[$child_name]['#ms_override']) AND ms_core_variable_isset($child_name)) {
+    if (!empty($parent[$child_name]['#ms_override']) && ms_core_variable_isset($child_name)) {
       $overrides[$child_name] = $parent[$child_name];
     }
     ms_core_extract_override_settings($parent[$child_name], $overrides);
@@ -5403,11 +5465,7 @@ function ms_core_extract_override_settings($parent, &$overrides) {
 function ms_core_variable_isset($name) {
   $result = db_query("SELECT * FROM {variable} WHERE name = :name", array(':name' => $name));
 
-  foreach ($result as $variable) {
-    return TRUE;
-  }
-
-  return FALSE;
+  return !empty($result);
 }
 
 /**
@@ -5428,11 +5486,11 @@ function ms_core_get_override_settings_form_elements(&$form, $object = NULL) {
     '#tree' => TRUE,
     '#collapsible' => TRUE,
     '#collapsed' => TRUE,
+    '#group' => 'vertical_tabs',
   );
 
-  if (is_array($override_settings) AND !empty($override_settings)) {
+  if (is_array($override_settings) && !empty($override_settings)) {
     foreach ($override_settings as $module => $info) {
-      $override = FALSE;
       $t_form_state = form_state_defaults();
       if (!empty($info['params'])) {
         $t_form_state['build_info']['args'] = $info['params'];
@@ -5452,6 +5510,7 @@ function ms_core_get_override_settings_form_elements(&$form, $object = NULL) {
         );
 
         foreach ($overrides as $key => $element) {
+          unset($element['#group']);
           $form['override_settings'][$module][$key] = $element;
 
           // Check if this value is overridden or not.
@@ -5462,9 +5521,9 @@ function ms_core_get_override_settings_form_elements(&$form, $object = NULL) {
             // Make all override settings not be required.
             $form['override_settings'][$module][$key]['#required'] = FALSE;
             $form['override_settings'][$module][$key]['#prefix'] = "<div style='margin:2px;padding: 2px;border: 2px solid #ffaa66;'>
-              <div style='color: #ff6666; font-weight: bold;'>" . t('- OVERRIDDEN - (Default: %default)', array(
-              '%default' => $form['override_settings'][$module][$key]['#default_value'],
-            )) . "</div>";
+              <div style='color: #ff6666; font-weight: bold;'>" . t('- OVERIDDEN - (Default: %default)', array(
+                '%default' => $element['#default_value'],
+              )) . "</div>";
             $form['override_settings'][$module][$key]['#suffix'] = "</div>";
           }
         }
@@ -5480,35 +5539,16 @@ function ms_core_get_override_settings_form_elements(&$form, $object = NULL) {
  *   An associative array of currencies.
  */
 function ms_core_get_currencies() {
-  return array(
-    'USD' => t('US Dollar'),
-    'AUD' => t('Australian Dollar'),
-    'CAD' => t('Canadian Dollar'),
-    'CFA' => t('CFA franc'),
-    'CHF' => t('Swiss Franc'),
-    'CZK' => t('Czech Koruna'),
-    'DKK' => t('Danish Krone'),
-    'EUR' => t('Euro'),
-    'GBP' => t('Pound Sterling'),
-    'HKD' => t('Hong Kong Dollar'),
-    'HUF' => t('Hungarian Forint'),
-    'ILS' => t('Israeli New Shekel'),
-    'INR' => t('Indian Rupee'),
-    'JPY' => t('Japanese Yen'),
-    'MXN' => t('Mexican Peso'),
-    'NGN' => t('Nigerian naira'),
-    'NOK' => t('Norwegian Krone'),
-    'NZD' => t('New Zealand Dollar'),
-    'PLN' => t('Polish Zloty'),
-    'SEK' => t('Swedish Krona'),
-    'SGD' => t('Singapore Dollar'),
-    'BRL' => t('Brazilian Real'),
-    'MYR' => t('Malaysian Ringgits'),
-    'PHP' => t('Philippine Pesos'),
-    'TWD' => t('Taiwan New Dollars'),
-    'THB' => t('Thai Baht'),
-    'ZAR' => t('South African rand'),
-  );
+  module_load_include('inc', 'ms_core', 'ms_core.currencies');
+  $currencies = ms_core_get_currencies_config();
+
+  $list = array();
+
+  foreach ($currencies as $code => $info) {
+    $list[$code] = $info['name'];
+  }
+
+  return $list;
 }
 
 /**
@@ -5540,103 +5580,33 @@ function ms_core_format_money($amount = 0, $currency_code = NULL, $context = 'HT
     $pos_sign = '- ';
     $amount = abs($amount);
   }
-  $f_amount = number_format(floatval($amount), 2);
+
+  module_load_include('inc', 'ms_core', 'ms_core.currencies');
+  $currencies = ms_core_get_currencies_config();
+  $currency_info = array(
+    'name' => '',
+    'sign' => '',
+    'decimal' => '.',
+    'thousands' => ',',
+    'format' => variable_get('ms_core_format_money_template', '[sign][number].[decimal]'),
+  );
+
+  if (isset($currencies[$currency_code])) {
+    $currency_info = $currencies[$currency_code];
+  }
+
+  $f_amount = number_format(floatval($amount), 2, $currency_info['decimal'], $currency_info['thousands']);
 
   $amount_string = explode('.', $f_amount);
 
   $whole = $amount_string[0];
   $decimal = $amount_string[1];
 
-  switch ($currency_code) {
-    case 'USD':
-      $sign = '$';
-      break;
-    case 'AUD':
-      $sign = '$';
-      break;
-    case 'CAD':
-      $sign = '$';
-      break;
-    case 'CFA':
-      $sign = 'CFA francs';
-      break;
-    case 'CHF':
-      $sign = 'francs';
-      break;
-    case 'CZK':
-      $sign = 'Kc';
-      break;
-    case 'DKK':
-      $sign = 'kr';
-      break;
-    case 'EUR':
-      $sign = '€';
-      break;
-    case 'GBP':
-      $sign = '£';
-      break;
-    case 'HKD':
-      $sign = '$';
-      break;
-    case 'HUF':
-      $sign = 'forint';
-      break;
-    case 'ILS':
-      $sign = 'new shekalim';
-      break;
-    case 'INR':
-      $sign = 'INR';
-      break;
-    case 'JPY':
-      $sign = '¥';
-      break;
-    case 'MXN':
-      $sign = '$';
-      break;
-    case 'NGN':
-      $sign = '₦';
-      break;
-    case 'NOK':
-      $sign = 'kr';
-      break;
-    case 'NZD':
-      $sign = '$';
-      break;
-    case 'PLN':
-      $sign = 'zl';
-      break;
-    case 'SEK':
-      $sign = 'kr';
-      break;
-    case 'SGD':
-      $sign = '$';
-      break;
-    case 'BRL':
-      $sign = 'R$';
-      break;
-    case 'MYR':
-      $sign = 'RM';
-      break;
-    case 'PHP':
-      $sign = 'piso';
-      break;
-    case 'TWD':
-      $sign = '$';
-      break;
-    case 'THB':
-      $sign = '?';
-      break;
-    case 'ZAR':
-      $sign = 'R ';
-      break;
-    default:
-      $sign = $currency_code . ' ';
-      break;
-  }
+  $sign = !empty($currency_info['sign']) ? $currency_info['sign'] : $currency_code . ' ';
 
   drupal_alter('ms_core_currency_sign', $sign, $alter_context);
 
-  $format = $pos_sign . variable_get('ms_core_format_money_template', '[sign][number].[decimal]');
+  $format = $pos_sign . $currency_info['format'];
 
   drupal_alter('ms_core_currency_format', $format, $alter_context);
 
@@ -5660,7 +5630,7 @@ function ms_core_format_money($amount = 0, $currency_code = NULL, $context = 'HT
  *   The formatted string for recurring schedule.
  */
 function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment = FALSE) {
-  $schedule = (object) $schedule;
+  $schedule = (object)$schedule;
   $currency = !empty($schedule->currency) ? $schedule->currency : ms_core_variable_get('ms_core_default_currency', 'USD', $schedule);
 
   if (!empty($schedule->qty)) {
@@ -5690,9 +5660,8 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
               '!date' => ms_core_format_next_fixed_date($schedule->fixed_date_string, $schedule->fixed_date_type),
             )
           );
-        }
-        else {
-          return t('!trial_amount for the first !trial_period, then !main_amount !every_period for !time_length',
+        } else {
+          return t('!trial_amount for !trial_period, then !main_amount !every_period for !time_length',
             array(
               '!trial_amount' => ($schedule->trial_amount != 0) ? ms_core_format_money($schedule->trial_amount, $currency) : t('Free'),
               '!trial_period' => ms_core_format_unit($schedule->trial_unit, $schedule->trial_length),
@@ -5702,8 +5671,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
             )
           );
         }
-      }
-      else {
+      } else {
         if (!empty($schedule->fixed_date)) {
           return t('!trial_amount for now until !date, then !main_amount !every_period',
             array(
@@ -5713,9 +5681,8 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
               '!date' => ms_core_format_next_fixed_date($schedule->fixed_date_string, $schedule->fixed_date_type),
             )
           );
-        }
-        else {
-          return t('!trial_amount for the first !trial_period, then !main_amount !every_period',
+        } else {
+          return t('!trial_amount for !trial_period, then !main_amount !every_period',
             array(
               '!trial_amount' => ($schedule->trial_amount != 0) ? ms_core_format_money($schedule->trial_amount, $currency) : t('Free'),
               '!trial_period' => ms_core_format_unit($schedule->trial_unit, $schedule->trial_length),
@@ -5725,8 +5692,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
           );
         }
       }
-    }
-    else {
+    } else {
       if (($schedule->total_occurrences > 1)) {
         if (!empty($schedule->fixed_date)) {
           return t('!main_amount for now until !date, then !main_amount !every_period for !time_length',
@@ -5737,8 +5703,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
               '!date' => ms_core_format_next_fixed_date($schedule->fixed_date_string, $schedule->fixed_date_type),
             )
           );
-        }
-        else {
+        } else {
           return t('!main_amount !every_period for !time_length',
             array(
               '!main_amount' => ($schedule->main_amount != 0) ? ms_core_format_money($schedule->main_amount, $currency) : t('Free'),
@@ -5747,8 +5712,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
             )
           );
         }
-      }
-      else {
+      } else {
         if (!empty($schedule->fixed_date)) {
           return t('!main_amount for now until !date, then !main_amount !every_period',
             array(
@@ -5757,8 +5721,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
               '!date' => ms_core_format_next_fixed_date($schedule->fixed_date_string, $schedule->fixed_date_type),
             )
           );
-        }
-        else {
+        } else {
           return t('!main_amount !every_period',
             array(
               '!main_amount' => ($schedule->main_amount != 0) ? ms_core_format_money($schedule->main_amount, $currency) : t('Free'),
@@ -5768,8 +5731,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
         }
       }
     }
-  }
-  else {
+  } else {
     if (!empty($schedule->fixed_date)) {
       $amount = ($schedule->trial_amount != 0) ? $schedule->trial_amount : $schedule->main_amount;
       return t('!main_amount for now until !date',
@@ -5778,8 +5740,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
           '!date' => ms_core_format_next_fixed_date($schedule->fixed_date_string, $schedule->fixed_date_type),
         )
       );
-    }
-    else {
+    } else {
       if (!empty($schedule->main_length)) {
         return t('!main_amount for !main_period',
           array(
@@ -5787,8 +5748,7 @@ function ms_core_get_recurring_string($schedule, $recurring = FALSE, $adjustment
             '!main_period' => ms_core_format_unit($schedule->main_unit, $schedule->main_length),
           )
         );
-      }
-      else {
+      } else {
         return ($schedule->main_amount != 0) ? ms_core_format_money($schedule->main_amount, $currency) : t('Free');
       }
     }
@@ -5938,7 +5898,7 @@ function ms_core_get_regions($numcode) {
  *   The country.
  * @param string $from
  *   The from key.
- * @param string $to.
+ * @param string $to .
  *   The to key.
  *
  * @return string
@@ -5948,7 +5908,7 @@ function ms_core_get_country_type($country, $from, $to) {
   $from_countries = ms_core_get_countries($from);
   $to_countries = array_flip(ms_core_get_countries($to));
 
-  if (isset($from_countries[$country]) AND isset($to_countries[$from_countries[$country]])) {
+  if (isset($from_countries[$country]) && isset($to_countries[$from_countries[$country]])) {
     return $to_countries[$from_countries[$country]];
   }
 
@@ -6008,7 +5968,7 @@ function ms_core_get_months() {
  *   (optional) How many chunks to break into. Defaults to 4.
  * @param int $pad
  *   (optional) The length to pad to. Defaults to 16.
- * @param char $mask
+ * @param string $mask
  *   (optional) What character to use for the masking. Defaults to 'X'.
  * @param int $leave
  *   (optional) How many numbers to leave showing. Defaults to 4.
@@ -6017,7 +5977,7 @@ function ms_core_get_months() {
  *   The masked string for the Credit Card.
  */
 function ms_core_mask_cc($num, $break = 4, $pad = 16, $mask = 'X', $leave = 4) {
-  return implode('-', str_split(substr_replace(str_pad(trim($num), $pad, '0', STR_PAD_LEFT), str_repeat($mask, $pad -$leave), 0, $leave * -1), $break));
+  return implode('-', str_split(substr_replace(str_pad(trim($num), $pad, '0', STR_PAD_LEFT), str_repeat($mask, $pad - $leave), 0, $leave * -1), $break));
 }
 
 /**
@@ -6032,23 +5992,21 @@ function ms_core_mask_cc($num, $break = 4, $pad = 16, $mask = 'X', $leave = 4) {
  *   The default value for the field.
  */
 function ms_core_get_form_field_default($key, $values = FALSE) {
-  if (module_exists('profile2') AND stristr($key, '|')) {
+  if (module_exists('profile2') && stristr($key, '|')) {
     list($type, $field_name) = explode('|', $key);
-    if (isset($values['uid']) AND $account = user_load($values['uid'])) {
+    if (isset($values['uid']) && ($account = user_load($values['uid']))) {
       if ($profile = profile2_load_by_user($account, $type)) {
         if (isset($profile->{$field_name}[LANGUAGE_NONE][0]['safe_value'])) {
           return $profile->{$field_name}[LANGUAGE_NONE][0]['safe_value'];
         }
       }
-    }
-    elseif (!empty($values['profile_' . $type][$field_name][LANGUAGE_NONE][0]['value'])) {
+    } elseif (!empty($values['profile_' . $type][$field_name][LANGUAGE_NONE][0]['value'])) {
       return $values['profile_' . $type][$field_name][LANGUAGE_NONE][0]['value'];
     }
   }
-  if ($key AND is_array($values) AND isset($values[$key])) {
+  if ($key && is_array($values) && isset($values[$key])) {
     return $values[$key];
-  }
-  else {
+  } else {
     return '';
   }
 }
@@ -6074,9 +6032,9 @@ function ms_core_get_billing_form(&$form, MsOrder $order = NULL, $billing = TRUE
     // Load the account from the order.
     $account = user_load($order->uid);
     if ($account->uid) {
-      $vars += (array) $account;
+      $vars += (array)$account;
     }
-    if (isset($order->data['register_form']['email1']) AND $order->data['register_form']['email1']) {
+    if (isset($order->data['register_form']['email1']) && $order->data['register_form']['email1']) {
       // Get the address and email from the registration form.
       $vars += $order->data['register_form'];
     }
@@ -6135,8 +6093,7 @@ function ms_core_get_billing_form(&$form, MsOrder $order = NULL, $billing = TRUE
         $form['billing'][$field]['#default_value'] = ms_core_get_form_field_default($field, $vars);
       }
       // @todo - Add state selection ajax.
-    }
-    else {
+    } else {
       $form['billing'][$field] = array(
         '#type' => 'value',
         '#value' => ms_core_get_form_field_default(variable_get('ms_core_profile_' . $field, $data['profile']), $vars),
@@ -6175,9 +6132,9 @@ function ms_core_get_cc_form(&$form, $order = NULL, $cards = array(), $use_card 
     // Load the account from the order.
     $account = user_load($order->uid);
     if ($account->uid) {
-      $vars += (array) $account;
+      $vars += (array)$account;
     }
-    if (isset($order->data['register_form']['email1']) AND $order->data['register_form']['email1']) {
+    if (isset($order->data['register_form']['email1']) && $order->data['register_form']['email1']) {
       // Get the address and email from the registration form.
       $vars += $order->data['register_form'];
     }
@@ -6219,8 +6176,7 @@ function ms_core_get_cc_form(&$form, $order = NULL, $cards = array(), $use_card 
       if (empty($form['cc'][$field]['#default_value'])) {
         $form['cc'][$field]['#default_value'] = ms_core_get_form_field_default($field, $vars);
       }
-    }
-    else {
+    } else {
       $form['cc'][$field] = array(
         '#type' => 'value',
         '#value' => ms_core_get_form_field_default(variable_get('ms_core_profile_' . $field, $data['profile']), $vars),
@@ -6309,10 +6265,10 @@ function ms_core_cc_form_validate($form, &$form_state) {
 
   $v = $form_state['values'];
   // Validate Expiration Date.
-  if (isset($v['cc_exp_year']) AND $v['cc_exp_year'] < date('Y')) {
+  if (isset($v['cc_exp_year']) && $v['cc_exp_year'] < date('Y')) {
     form_set_error('cc_exp_year', t('The card you entered is expired.'));
   }
-  if (isset($v['cc_exp_year']) AND $v['cc_exp_year'] == date('Y') AND $v['cc_exp_month'] < date('n')) {
+  if (isset($v['cc_exp_year']) && $v['cc_exp_year'] == date('Y') && $v['cc_exp_month'] < date('n')) {
     form_set_error('cc_exp_month', t('The card you entered is expired.'));
   }
 }
@@ -6335,6 +6291,8 @@ function ms_core_clean_cc_number($num) {
  */
 function ms_core_mail($key, &$message, $vars) {
   $tokens = array();
+  $subject = "";
+  $body = "";
   switch ($key) {
     case 'admin_error':
       $subject = t("Error Notice");
@@ -6351,6 +6309,33 @@ function ms_core_mail($key, &$message, $vars) {
       $body = variable_get('ms_core_upcoming_payment_mail_body', '');
       $tokens = array(
         'ms_core_order' => $order,
+        'user' => $account,
+      );
+      break;
+
+    case 'billing_error':
+      $payment_profile = $vars['payment_profile'];
+      $order = $vars['order'];
+      $account = user_load($payment_profile->uid);
+
+      $subject = variable_get($payment_profile->module . '_billing_error_subject', '');
+      $body = variable_get($payment_profile->module . '_billing_error_body', '');
+      $tokens = array(
+        'ms_core_order' => $order,
+        'ms_core_payment_profile' => $payment_profile,
+        'user' => $account,
+      );
+      break;
+
+    case 'expiring_card':
+      // Load the vars.
+      $payment_profile = $vars['payment_profile'];
+      $account = user_load($payment_profile->uid);
+
+      $subject = variable_get($payment_profile->module . '_expiring_card_reminder_mail_subject', '');
+      $body = variable_get($payment_profile->module . '_expiring_card_reminder_mail_body', '');
+      $tokens = array(
+        'ms_core_payment_profile' => $payment_profile,
         'user' => $account,
       );
       break;
@@ -6522,7 +6507,7 @@ function ms_core_token_info() {
         'name' => t('Payment Date'),
         'description' => t("The date the payment was made"),
       ),
-  'transactionID' => array(
+      'transactionID' => array(
         'name' => t('Transaction ID'),
         'description' => t("The 3rd party (paypal) transaction id"),
       ),
@@ -6648,10 +6633,12 @@ function ms_core_tokens($type, $tokens, $data = array(), $options = array()) {
           $replacements[$original] = format_date($object->modified, 'small');
           break;
         case 'nextPaymentDate':
-          $replacements[$original] = ms_core_get_next_payment_date($object);
+          $recurring_schedule = ms_core_get_recurring_schedule($object->oid);
+          $replacements[$original] = ms_core_get_next_payment_date($recurring_schedule);
           break;
         case 'nextPaymentAmount':
-          $replacements[$original] = ms_core_get_next_payment_amount($object);
+          $recurring_schedule = ms_core_get_recurring_schedule($object->oid);
+          $replacements[$original] = ms_core_get_next_payment_amount($recurring_schedule);
           break;
         case 'orderAmount':
           $replacements[$original] = ms_core_format_money($object->amount, $object->currency, 'Plain');
@@ -6674,12 +6661,10 @@ function ms_core_tokens($type, $tokens, $data = array(), $options = array()) {
         case 'customerName':
           if ($object->first_name) {
             $replacements[$original] = $object->first_name . ' ' . $object->last_name;
-          }
-          else {
+          } else {
             if ($account = user_load($object->uid)) {
               $replacements[$original] = $account->name;
-            }
-            else {
+            } else {
               $replacements[$original] = t('N/A');
             }
           }
@@ -6687,12 +6672,10 @@ function ms_core_tokens($type, $tokens, $data = array(), $options = array()) {
         case 'customerEmail':
           if ($object->email_address) {
             $replacements[$original] = $object->email_address;
-          }
-          else {
+          } else {
             if ($account = user_load($object->uid)) {
               $replacements[$original] = $account->mail;
-            }
-            else {
+            } else {
               $replacements[$original] = t('N/A');
             }
           }
@@ -6715,7 +6698,7 @@ function ms_core_tokens($type, $tokens, $data = array(), $options = array()) {
         case 'shippingStreet':
           $replacements[$original] = $object->shipping_address['street'];
           break;
-          case 'shippingStreet2':
+        case 'shippingStreet2':
           $replacements[$original] = $object->shipping_address['street2'];
           break;
         case 'shippingCity':
@@ -6756,7 +6739,7 @@ function ms_core_tokens($type, $tokens, $data = array(), $options = array()) {
         case 'paymentDate':
           $replacements[$original] = isset($object->created) ? format_date($object->created, 'small') : t('N/A');
           break;
-    case 'transactionID':
+        case 'transactionID':
           $replacements[$original] = $object->transaction;
           break;
       }
@@ -6788,9 +6771,9 @@ function ms_core_tokens($type, $tokens, $data = array(), $options = array()) {
     }
   }
   if ($type == 'ms_core_payment_profile' && !empty($data['ms_core_payment_profile'])) {
-    $object = (array) $data['ms_core_payment_profile'];
+    $object = (array)$data['ms_core_payment_profile'];
     foreach ($tokens as $name => $original) {
-      $replacements[$original] = $object[$name];
+      $replacements[$original] = !empty($object[$name]) ? $object[$name] : NULL;
 
       if ($name == 'update_url') {
         $replacements[$original] = url('user/' . $object['uid'] . '/billing-info', array('absolute' => TRUE));
@@ -6817,8 +6800,7 @@ function ms_core_list_products(MsOrder $order) {
       $products[] = $product->name;
     }
     return implode($products, ', ');
-  }
-  else {
+  } else {
     return '';
   }
 }
@@ -6839,8 +6821,7 @@ function ms_core_list_payments(MsOrder $order) {
       $payments[] = format_date($payment->created, 'small') . ' - ' . ms_core_format_money($payment->amount, $payment->currency, 'payment_amount');
     }
     return implode($payments, ', ');
-  }
-  else {
+  } else {
     return '';
   }
 }
@@ -6860,9 +6841,9 @@ function ms_core_get_order_summary(MsOrder $order) {
 
   return t('Order Summary') . ':
 '
-    . t('Products') . ':' . $products . '
+  . t('Products') . ':' . $products . '
 '
-    . t('Payments') . ': ' . $payments;
+  . t('Payments') . ': ' . $payments;
 }
 
 /**
@@ -6934,8 +6915,7 @@ function ms_core_get_order_subtotal_html(MsOrder $order) {
     foreach ($order->products as $product) {
       if ($product->recurring_schedule['has_trial']) {
         $product->recurring_schedule['trial_amount'] = $subtotal;
-      }
-      else {
+      } else {
         $product->recurring_schedule['main_amount'] = $subtotal;
       }
 
@@ -6945,8 +6925,7 @@ function ms_core_get_order_subtotal_html(MsOrder $order) {
     }
     $subtotal = ms_core_get_order_products_total($order);
     return ms_core_format_money($subtotal, $order->currency);
-  }
-  else {
+  } else {
     $subtotal = ms_core_get_order_products_total($order);
     return ms_core_format_money($subtotal, $order->currency);
   }
@@ -6973,8 +6952,7 @@ function ms_core_get_order_total_html(MsOrder $order) {
     $recurring_schedule['data'] = $order->data;
     $recurring_schedule['currency'] = $order->currency;
     return ms_core_get_recurring_string($recurring_schedule, TRUE);
-  }
-  else {
+  } else {
     $recurring_schedule['main_amount'] = $order->amount;
     $recurring_schedule['data'] = $order->data;
     $recurring_schedule['currency'] = $order->currency;
@@ -7056,16 +7034,13 @@ function ms_core_shorten_name($name, $length = 25, $char = '...') {
  */
 function ms_core_get_cart_block_html($hide_if_empty, $help_text) {
   $html = '';
-  $is_cart = TRUE;
   $order = ms_core_load_session_order();
   if ($order && $order->status == 'checkout') {
     $cart = $order;
-    $is_cart = FALSE;
-  }
-  else {
+  } else {
     $cart = ms_core_get_cart();
   }
-  if ($cart AND count($cart->products)) {
+  if ($cart && count($cart->products)) {
     // Add the CSS.
     drupal_add_css(drupal_get_path('module', 'ms_core') . '/css/ms_core.css');
 
@@ -7088,7 +7063,7 @@ function ms_core_get_cart_block_html($hide_if_empty, $help_text) {
       // Add the product specific adjustments here.
       $product_total = ms_core_get_product_display_price($product);
       foreach ($cart->adjustments as $adjustment) {
-        if ($adjustment->active AND !empty($adjustment->product_id) AND $adjustment->product_id == $product->cart_product_id) {
+        if ($adjustment->active && !empty($adjustment->product_id) && $adjustment->product_id == $product->cart_product_id) {
           $value = ms_core_get_adjusted_price($adjustment, $product_total);
           $product_total += $value;
           $item = "<div class='ms_cart_block_contents_item'>";
@@ -7101,9 +7076,9 @@ function ms_core_get_cart_block_html($hide_if_empty, $help_text) {
     }
 
     $price = ms_core_get_order_products_total($cart);
-    foreach ($cart->adjustments as $adjustment_num => $adjustment) {
+    foreach ($cart->adjustments as $adjustment) {
       // Only show the adjustments that don't have product associations.
-      if ($adjustment->active AND empty($adjustment->product_id)) {
+      if ($adjustment->active && empty($adjustment->product_id)) {
         $value = ms_core_get_adjusted_price($adjustment, $price);
         $price += $value;
         $item = "<div class='ms_cart_block_contents_item'>";
@@ -7134,8 +7109,7 @@ function ms_core_get_cart_block_html($hide_if_empty, $help_text) {
     if ($help_text) {
       $html .= "<div id='ms_cart_block_help_text'>" . $help_text . "</div>";
     }
-  }
-  elseif (!$hide_if_empty) {
+  } elseif (!$hide_if_empty) {
     $html .= "<div id='ms_cart_block_cart_contents'>" . t('!cartLink your shopping cart.', array('!cartLink' => l(t('View'), 'ms/cart'))) . "</div>";
     if ($help_text) {
       $html .= "<div id='ms_cart_block_help_text'>" . $help_text . "</div>";
@@ -7242,14 +7216,11 @@ function ms_core_cart_to_order($data = NULL) {
 
   if ($user->uid) {
     $order->email_address = $user->mail;
-  }
-  elseif (isset($order->data['form']['mail'])) {
+  } elseif (isset($order->data['form']['mail'])) {
     $order->email_address = $order->data['form']['mail'];
-  }
-  elseif (isset($data['register_form']['email1'])) {
+  } elseif (isset($data['register_form']['email1'])) {
     $order->email_address = $data['register_form']['email1'];
-  }
-  elseif (isset($order->data['form']['values']['mail'])) {
+  } elseif (isset($order->data['form']['values']['mail'])) {
     $order->email_address = $order->data['form']['values']['mail'];
   }
 
@@ -7279,7 +7250,7 @@ function ms_core_remove_cart_adjustment($adjustment, $cart = NULL) {
   if (!$cart) {
     $cart = ms_core_get_cart();
   }
-  $result = db_delete('ms_cart_adjustments')
+  db_delete('ms_cart_adjustments')
     ->condition('cart_id', $cart->cart_id)
     ->condition('id', $adjustment->id)
     ->execute();
@@ -7295,7 +7266,7 @@ function ms_core_remove_cart_adjustment($adjustment, $cart = NULL) {
  */
 function ms_core_remove_cart_adjustment_match($code) {
   $cart = ms_core_get_cart();
-  $result = db_delete('ms_cart_adjustments')
+  db_delete('ms_cart_adjustments')
     ->condition('cart_id', $cart->cart_id)
     ->condition('id', $code . '%', 'LIKE')
     ->execute();
@@ -7312,7 +7283,7 @@ function ms_core_remove_cart_adjustment_match($code) {
  * @ingroup ms_core_api
  */
 function ms_core_remove_order_adjustment_match($order, $code) {
-  $result = db_delete('ms_order_adjustments')
+  db_delete('ms_order_adjustments')
     ->condition('oid', $order->oid)
     ->condition('id', $code . '%', 'LIKE')
     ->execute();
@@ -7377,10 +7348,10 @@ function ms_core_clear_order_session() {
  */
 function ms_core_empty_cart($cart_id = NULL) {
   $cart = ms_core_get_cart($cart_id);
-  $result = db_delete('ms_cart_products')
+  db_delete('ms_cart_products')
     ->condition('cart_id', $cart->cart_id)
     ->execute();
-  $result = db_delete('ms_cart_adjustments')
+  db_delete('ms_cart_adjustments')
     ->condition('cart_id', $cart->cart_id)
     ->execute();
 }
@@ -7428,7 +7399,7 @@ function ms_cart_get_contents($cid = NULL, $action = NULL) {
  * @param int $cid
  *   (optional) The cart id. Defaults to NULL.
  *
- * @return object
+ * @return MsOrder
  *   The cart object.
  *
  * @ingroup ms_core_api
@@ -7439,13 +7410,10 @@ function ms_core_get_cart($cid = NULL) {
   // Update the products so they don't expire.
   db_update('ms_cart_products')
     ->fields(array(
-    'changed' => REQUEST_TIME,
-  ))
+      'changed' => REQUEST_TIME,
+    ))
     ->condition('cart_id', $cid)
     ->execute();
-
-  // Select all of the products.
-  $result = db_query("SELECT * FROM {ms_cart_products} WHERE cart_id = :cart_id", array(':cart_id' => $cid));
 
   $cart = new MsOrder();
 
@@ -7457,21 +7425,26 @@ function ms_core_get_cart($cid = NULL) {
   // Get the Adjustments for the Order.
   $cart->adjustments = ms_core_get_cart_adjustments($cart);
 
-  $data = array();
-
-  // Make sure that recurring orders only have the one recurring item.
-  foreach ($cart->products as $product) {
-    $cart->recurring_schedule = $product->recurring_schedule;
-    $data = array_merge($data, $product->data);
-    if ($product->type == 'recurring') {
-      $cart->products = array();
-      $cart->products[] = $product;
-      $cart->order_type = 'recurring';
-      break;
+  // Set the order type to multi_recurring if there are more than 1 product in
+  // the cart and at least one of them is recurring.
+  if (ms_core_multi_recurring_supported() && count($cart->products) > 1) {
+    foreach ($cart->products as $product) {
+      if ($product->type == 'recurring') {
+        $cart->order_type = 'multi_recurring';
+      }
+    }
+  } else {
+    foreach ($cart->products as $product) {
+      if ($product->type == 'recurring') {
+        $cart->order_type = 'recurring';
+      }
     }
   }
 
-  $cart->data = array_merge($cart->data, $data);
+  // Add the product data to the cart data.
+  foreach ($cart->products as $product) {
+    $cart->data = array_merge($cart->data, $product->data);
+  }
 
   // Set the currency if it is overridden.
   $cart->currency = ms_core_variable_get('ms_core_default_currency', 'USD', $cart);
@@ -7494,8 +7467,7 @@ function ms_cart_get_id() {
 
   if ($user->uid) {
     return $user->uid;
-  }
-  elseif (!isset($_SESSION['ms_cart_id'])) {
+  } elseif (!isset($_SESSION['ms_cart_id'])) {
     $_SESSION['ms_cart_id'] = md5(uniqid(rand(), TRUE));
   }
 
@@ -7588,11 +7560,11 @@ function ms_core_get_filter_form($form, &$form_state, $variables) {
   extract($variables);
 
   $collapsed = TRUE;
-  foreach ($variables as $element => $value) {
-    if ((!is_array($value) AND $value)) {
+  foreach ($variables as $value) {
+    if ((!is_array($value) && $value)) {
       $collapsed = FALSE;
     }
-    if (is_array($value) AND ($value['#default_value'] OR (isset($value['#required']) AND $value['#required']))) {
+    if (is_array($value) && ($value['#default_value'] OR (isset($value['#required']) && $value['#required']))) {
       $collapsed = FALSE;
     }
   }
@@ -7708,11 +7680,10 @@ function ms_core_get_cards($cards, $allowed_cards, $filter = TRUE) {
   if ($filter) {
     $allowed_cards = array_filter($allowed_cards);
   }
-  if (is_array($allowed_cards) AND !empty($allowed_cards)) {
+  if (is_array($allowed_cards) && !empty($allowed_cards)) {
     $filtered_cards = array_intersect_key($cards, $allowed_cards);
     return $filtered_cards;
-  }
-  else {
+  } else {
     return $cards;
   }
 }
@@ -7741,19 +7712,20 @@ function ms_core_time_ago($date, $granularity = 2) {
     'second' => 1,
   );
 
+  $ret_val = '';
   foreach ($periods as $key => $value) {
     if ($difference >= $value) {
       $time = floor($difference / $value);
       $difference %= $value;
-      $retval .= ($retval ? ' ' : '') . $time . ' ';
-      $retval .= (($time > 1) ? $key . 's' : $key);
+      $ret_val .= ($ret_val ? ' ' : '') . $time . ' ';
+      $ret_val .= (($time > 1) ? $key . 's' : $key);
       $granularity--;
     }
     if ($granularity == '0') {
       break;
     }
   }
-  return $retval;
+  return $ret_val;
 }
 
 /**
@@ -7774,13 +7746,13 @@ function ms_core_time_ago($date, $granularity = 2) {
 function ms_core_add_history_item($order, $uid, $message, $hidden = FALSE) {
   return db_insert('ms_core_order_history')
     ->fields(array(
-    'oid' => $order->oid,
-    'uid' => $uid,
-    'message' => $message,
-    'status' => $order->status,
-    'hidden' => $hidden ? 1 : 0,
-    'created' => REQUEST_TIME,
-  ))
+      'oid' => $order->oid,
+      'uid' => $uid,
+      'message' => $message,
+      'status' => $order->status,
+      'hidden' => $hidden ? 1 : 0,
+      'created' => REQUEST_TIME,
+    ))
     ->execute();
 }
 
@@ -7808,8 +7780,7 @@ function ms_core_get_cc_images($cards_raw = array(), $bw = FALSE) {
     if ($type) {
       if ($bw) {
         $string .= ' <div style="background: url(' . $path . $type . '_combo.png) no-repeat 0px -32px;" class="ms_cc_image-' . $type . ' ms_core_cc_image_combo"></div>';
-      }
-      else {
+      } else {
         $string .= ' <img src="' . $path . $type . '.png" class="' . $type . ' ms_core_cc_image" />';
       }
     }
@@ -7829,6 +7800,7 @@ function ms_core_ms_order_status_change($old_status, $new_status, $order) {
 
   return $order;
 }
+
 /**
  * Translates user strings via i18n.
  *
@@ -7917,7 +7889,7 @@ function ms_core_entity_info() {
  * Implements hook_entity_property_info_alter().
  */
 function ms_core_entity_property_info_alter(&$info) {
-  $ms_order = &$info['ms_order']['properties'];
+  $ms_order = & $info['ms_order']['properties'];
   $ms_order['oid']['label'] = t('Order ID');
   $ms_order['uid']['type'] = 'user';
   $ms_order['order_key']['label'] = t('Order key');
@@ -7968,6 +7940,7 @@ function ms_core_entity_property_info_alter(&$info) {
   );
   $billing_fields = array(
     'street' => t('Street'),
+    'street2' => t('Street 2'),
     'city' => t('City'),
     'state' => t('State'),
     'zip' => t('Zip'),
@@ -7981,7 +7954,7 @@ function ms_core_entity_property_info_alter(&$info) {
     );
   }
 
-  $ms_payment = &$info['ms_payment']['properties'];
+  $ms_payment = & $info['ms_payment']['properties'];
   $ms_payment['pid']['label'] = t('Payment ID');
   $ms_payment['oid']['type'] = 'ms_order';
   $ms_payment['recurring_id']['label'] = t('Recurring ID');
@@ -7991,7 +7964,7 @@ function ms_core_entity_property_info_alter(&$info) {
   $ms_payment['type']['options list'] = 'ms_core_get_payment_types';
   $ms_payment['gateway']['options list'] = 'ms_core_get_payment_gateways_list';
 
-  $ms_product = &$info['ms_product']['properties'];
+  $ms_product = & $info['ms_product']['properties'];
   $ms_product['order_product_id']['label'] = t('Order Product ID');
   $ms_product['oid']['type'] = 'ms_order';
   $ms_product['uid']['type'] = 'user';
@@ -8001,7 +7974,7 @@ function ms_core_entity_property_info_alter(&$info) {
   $ms_product['qty']['label'] = t('Quantity');
   $ms_product['amount']['label'] = t('Amount');
 
-  $ms_order_adjustment = &$info['ms_order_adjustment']['properties'];
+  $ms_order_adjustment = & $info['ms_order_adjustment']['properties'];
   $ms_order_adjustment['oid']['type'] = 'ms_order';
   $ms_order_adjustment['scope']['options list'] = 'ms_core_get_scopes';
   $ms_order_adjustment['scope']['label'] = t('Scope');
@@ -8029,7 +8002,7 @@ function ms_core_entity_property_info_alter(&$info) {
     'computed' => TRUE,
   );
 
-  $ms_recurring_schedule = &$info['ms_recurring_schedule']['properties'];
+  $ms_recurring_schedule = & $info['ms_recurring_schedule']['properties'];
   $ms_recurring_schedule['oid']['type'] = 'ms_order';
   $ms_recurring_schedule['created']['type'] = 'date';
   $ms_recurring_schedule['next_payment']['type'] = 'date';
@@ -8107,7 +8080,7 @@ function ms_core_adjustment_amount_getter_callback($data, array $options, $name,
   if ($order = ms_core_order_load($data->oid)) {
     $price = ms_core_get_order_products_total($order);
     foreach ($order->adjustments as $adjustment) {
-      if ($adjustment->active AND empty($adjustment->product_id)) {
+      if ($adjustment->active && empty($adjustment->product_id)) {
         $value = ms_core_get_adjusted_price($adjustment, $price);
 
         if ($adjustment->id == $data->id) {
@@ -8252,7 +8225,7 @@ function ms_core_create_autocomplete_key($nid) {
  */
 function ms_core_extract_nid_from_autocomplete_key($name) {
   if (preg_match('/^\[(\d+)\]/', $name, $matches) > 0) {
-    return (int) $matches[1];
+    return (int)$matches[1];
   }
   return NULL;
 }
@@ -8272,7 +8245,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'type',
               'type' => 'string',
-              'description'  => t('The type of order, recurring or cart.'),
+              'description' => t('The type of order, recurring or cart.'),
               'source' => 'data',
               'optional' => TRUE,
               'default value' => 'cart',
@@ -8280,7 +8253,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'uid',
               'type' => 'int',
-              'description'  => t('The user id to associate with the new order.'),
+              'description' => t('The user id to associate with the new order.'),
               'source' => 'data',
               'optional' => TRUE,
               'default value' => 0,
@@ -8295,7 +8268,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'oid',
               'type' => 'int',
-              'description'  => t('The order id.'),
+              'description' => t('The order id.'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 0,
@@ -8303,7 +8276,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'module',
               'type' => 'string',
-              'description'  => t('The name of the module that the product belongs to.'),
+              'description' => t('The name of the module that the product belongs to.'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => '',
@@ -8311,7 +8284,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'pid',
               'type' => 'int',
-              'description'  => t('The product id.'),
+              'description' => t('The product id.'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 0,
@@ -8326,7 +8299,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'oid',
               'type' => 'int',
-              'description'  => t('The order id.'),
+              'description' => t('The order id.'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 0,
@@ -8334,7 +8307,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'gateway',
               'type' => 'string',
-              'description'  => t('The machine name of the gateway for this payment. Use ms_core if unsure.'),
+              'description' => t('The machine name of the gateway for this payment. Use ms_core if unsure.'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 'ms_core',
@@ -8342,7 +8315,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'type',
               'type' => 'string',
-              'description'  => t('The type of payment, for example: cart, rec_payment, rec_signup, rec_cancel, etc.'),
+              'description' => t('The type of payment, for example: cart, rec_payment, rec_signup, rec_cancel, etc.'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 'cart',
@@ -8350,7 +8323,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'amount',
               'type' => 'float',
-              'description'  => t('The amount'),
+              'description' => t('The amount'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 0.00,
@@ -8358,7 +8331,7 @@ function ms_core_services_resources() {
             array(
               'name' => 'currency',
               'type' => 'string',
-              'description'  => t('The three digit currency code. Ex: USD'),
+              'description' => t('The three digit currency code. Ex: USD'),
               'source' => 'data',
               'optional' => FALSE,
               'default value' => 'USD',
@@ -8385,7 +8358,7 @@ function ms_core_services_resources() {
 function ms_core_services_ms_order_create($type = 'cart', $uid = 0) {
   $order = ms_core_order_new($type, $uid);
 
-  return (object) array(
+  return (object)array(
     'success' => TRUE,
     'message' => t("Order created successfully."),
     'order' => $order,
@@ -8412,17 +8385,16 @@ function ms_core_services_ms_order_create($type = 'cart', $uid = 0) {
 function ms_core_services_ms_order_add_order_payment($oid, $gateway, $type, $amount, $currency) {
   if ($order = ms_core_order_load($oid)) {
     $payment = ms_core_new_payment($order->oid, $gateway, $type, $amount, $currency);
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
-    return (object) array(
+    return (object)array(
       'success' => TRUE,
       'message' => t("Payment successfully added to order."),
       'payment' => $payment,
     );
-  }
-  else {
+  } else {
     // Show an error that the order couldn't be loaded.
-    return (object) array(
+    return (object)array(
       'success' => FALSE,
       'message' => t("The order could not be loaded."),
     );
@@ -8447,25 +8419,23 @@ function ms_core_services_ms_order_add_order_product($oid, $module, $pid) {
     if ($product = ms_core_load_module_product($module, $pid)) {
       $order = ms_core_add_order_product($order, $product);
       // Return the order object.
-      return (object) array(
+      return (object)array(
         'success' => TRUE,
         'message' => t("Product successfully added to order."),
         'product' => $product,
         'order' => $order,
       );
-    }
-    else {
+    } else {
       // Show an error that the product couldn't be loaded.
-      return (object) array(
+      return (object)array(
         'success' => FALSE,
         'message' => t("The product could not be loaded."),
         'order' => $order,
       );
     }
-  }
-  else {
+  } else {
     // Show an error that the order couldn't be loaded.
-    return (object) array(
+    return (object)array(
       'success' => FALSE,
       'message' => t("The order could not be loaded."),
     );
@@ -8476,22 +8446,7 @@ function ms_core_services_ms_order_add_order_product($oid, $module, $pid) {
  * Implements hook_ms_order_payment().
  */
 function ms_core_ms_order_payment($type, MsProduct $product, MsOrder $order, MsPayment $payment) {
-  // Send the thankyou email if applicable.
-  if (variable_get('ms_core_order_thankyou_mail_body', '')) {
-    switch ($type) {
-      case 'cart':
-      case 'rec_signup':
-        $account = user_load($order->uid);
-        $params = array(
-          'user' => $account,
-          'ms_core_order' => $order,
-          'ms_core_payment' => $payment,
-        );
-        drupal_mail('ms_core', 'thankyou', $account->mail, user_preferred_language($account), $params);
-        break;
-    }
-  }
-  if (variable_get('ms_core_profile_sync_back', FALSE) AND module_exists('profile2')) {
+  if (variable_get('ms_core_profile_sync_back', FALSE) && module_exists('profile2')) {
     // Load the user.
     $account = user_load($order->uid);
     $fields = ms_core_get_checkout_form_fields();
@@ -8499,13 +8454,14 @@ function ms_core_ms_order_payment($type, MsProduct $product, MsOrder $order, MsP
     // Billing Info.
     foreach ($fields as $field => $data) {
       if (variable_get('ms_checkout_form_' . $field . '_enabled', TRUE)
-        AND $profile_field = variable_get('ms_core_profile_' . $field, '')
-        AND stristr($profile_field, '|')) {
+        && ($profile_field = variable_get('ms_core_profile_' . $field, ''))
+        && stristr($profile_field, '|')
+      ) {
 
         list($profile_type, $field_name) = explode('|', $profile_field);
 
         $profile = profile2_load_by_user($account->uid, $profile_type);
-        if (!$profile){
+        if (!$profile) {
           profile_create(array('user' => $account, 'type' => $profile_type));
           $profile = profile2_load_by_user($account->uid, $profile_type);
         }
@@ -8566,7 +8522,7 @@ function ms_core_ms_order_payment($type, MsProduct $product, MsOrder $order, MsP
             $new_value = $order->shipping_address['last_name'];
             break;
         }
-        if (empty($profile->{$field_name}[LANGUAGE_NONE][0]['value']) AND $new_value) {
+        if (empty($profile->{$field_name}[LANGUAGE_NONE][0]['value']) && $new_value) {
           $profile->{$field_name}[LANGUAGE_NONE][0]['value'] = $new_value;
           profile2_save($profile);
         }
@@ -8581,12 +8537,15 @@ function ms_core_ms_order_payment($type, MsProduct $product, MsOrder $order, MsP
  * @param int $time
  *   (optional) A timestamp. Any carts older than this time will be removed.
  *   Defaults to the current time, which would clear all carts.
+ * @param bool $auth
+ *   (optional) Whether or not to act on authenticated users. Defaults to FALSE.
  *
  * @ingroup ms_core_api
  */
 function ms_core_clear_carts($time = REQUEST_TIME, $auth = FALSE) {
   if ($auth) {
     $result = db_query("SELECT DISTINCT cart_id FROM {ms_cart_products} WHERE changed <= :changed AND CHAR_LENGTH(cart_id) <= :length", array(':changed' => $time, ':length' => 8));
+
     foreach ($result as $row) {
       ms_core_empty_cart($row->cart_id);
     }
@@ -8595,10 +8554,13 @@ function ms_core_clear_carts($time = REQUEST_TIME, $auth = FALSE) {
     $result = db_query("SELECT * FROM {ms_orders} WHERE status = :status AND modified <= :changed",
       array(':status' => 'pending', ':changed' => $time));
     foreach ($result as $row) {
-      ms_core_order_delete($row->oid);
+      // If there are payments in this order, don't delete it.
+      $order = ms_core_order_load($row->oid);
+      if (count($order->payments) == 0) {
+        ms_core_order_delete($row->oid);
+      }
     }
-  }
-  else {
+  } else {
     $result = db_query("SELECT DISTINCT cart_id FROM {ms_cart_products} WHERE changed <= :changed AND CHAR_LENGTH(cart_id) > :length",
       array(':changed' => $time, ':length' => 8));
     foreach ($result as $row) {
@@ -8654,8 +8616,10 @@ function ms_core_ctools_plugin_type() {
       'recurring_schedule_support' => FALSE,
       'saved_cards_support' => FALSE,
       'refund_callback' => '',
+      'multi_recurring' => FALSE,
       'recurring' => TRUE,
       'cart' => TRUE,
+      'hosted' => FALSE,
     ),
   );
 
@@ -8689,8 +8653,7 @@ function ms_core_get_payment_gateway_name($module) {
   $gateway = ms_core_get_payment_gateway($module);
   if (!empty($gateway['name'])) {
     return $gateway['name'];
-  }
-  else {
+  } else {
     return t('None');
   }
 }
@@ -8708,18 +8671,26 @@ function ms_core_get_payment_gateway_display_name($module) {
   $gateway = ms_core_get_payment_gateway($module);
   if (!empty($gateway['display_name'])) {
     return $gateway['display_name'];
-  }
-  else {
+  } else {
     return t('None');
   }
+}
+
+/**
+ * Checks if multi_recurring is supported.
+ */
+function ms_core_multi_recurring_supported() {
+  $gateways = ms_core_get_payment_gateways('multi_recurring');
+
+  return variable_get('ms_core_allow_multi_recurring', FALSE) && count($gateways) > 0;
 }
 
 /**
  * Gets all payment gateways.
  *
  * @param string $type
- *   (Optional) The type of gateway to get. Can be 'cart', 'recurring', or
- *   'all'. Defaults to 'all'.
+ *   (Optional) The type of gateway to get. Can be 'cart', 'recurring',
+ *   'multi_recurring', or 'all'. Defaults to 'all'.
  * @param bool $include_saved_cards
  *   (Optional) Whether or not to include saved cards. Defaults to FALSE.
  *
@@ -8759,8 +8730,7 @@ function ms_core_get_payment_gateways($type = 'all', $include_saved_cards = FALS
 
     if ($type == 'all') {
       $gateways[$name] = $gateway;
-    }
-    elseif ($gateway[$type]) {
+    } elseif ($gateway[$type]) {
       $gateways[$name] = $gateway;
     }
 
@@ -8841,7 +8811,7 @@ function ms_core_get_checkout_payment_gateways($type = 'all', $block_gateways = 
 
     // Additional checks to make sure the gateway should show.
     if (!empty($gateway['active_variable'])) {
-      $gateway['active'] = variable_get($gateway['active_variable'], $gateway['active'], $cart);
+      $gateway['active'] = variable_get($gateway['active_variable'], FALSE, $cart);
     }
     if (!empty($gateway['active_callback'])) {
       $gateway['active'] = $gateway['active_callback']($cart);
@@ -8875,7 +8845,7 @@ function ms_core_get_payment_gateways_list($type = 'all', $requires = FALSE) {
   $gateways_raw = ms_core_get_payment_gateways($type);
   foreach ($gateways_raw as $name => $gateway) {
     $gateways[$name] = $gateway['name'];
-    if ($requires AND isset($gateway['requires'])) {
+    if ($requires && isset($gateway['requires'])) {
       $gateways[$name] .= ' (' . $gateway['requires'] . ')';
     }
   }
@@ -8901,8 +8871,7 @@ function ms_core_change_order_type(MsOrder $order, $type, $is_cart = TRUE) {
       ))
       ->condition('cart_id', $order->cart_id)
       ->execute();
-  }
-  else {
+  } else {
     db_update('ms_order_products')
       ->fields(array(
         'type' => $type,
@@ -9068,4 +9037,147 @@ function ms_core_get_checkout_return_url(MsOrder $order) {
  */
 function ms_core_views_api() {
   return array('api' => 3.0);
+}
+
+/**
+ * Implements hook_variable_group_info().
+ */
+function ms_core_variable_group_info() {
+  $i18n_settings = module_invoke_all('ms_core_overrides');
+  $groups = array();
+
+  if (is_array($i18n_settings) && !empty($i18n_settings)) {
+    foreach ($i18n_settings as $module => $info) {
+      $groups[$module] = array(
+        'title' => $info['title'],
+        'description' => '',
+        'access' => 'administer site configuration',
+        'path' => array('admin/moneyscripts'),
+      );
+    }
+  }
+
+  return $groups;
+}
+
+/**
+ * Implements hook_variable_info().
+ */
+function ms_core_variable_info($options) {
+  $i18n_settings = module_invoke_all('ms_core_overrides');
+  $variable = array();
+
+  if (is_array($i18n_settings) && !empty($i18n_settings)) {
+    foreach ($i18n_settings as $module => $info) {
+      $t_form_state = form_state_defaults();
+      if (!empty($info['params'])) {
+        $t_form_state['build_info']['args'] = $info['params'];
+      }
+      $module_form = drupal_retrieve_form($info['form'], $t_form_state);
+
+      $settings = array();
+      ms_core_extract_i18n_settings($module_form, $settings);
+
+      if (!empty($settings)) {
+        foreach ($settings as $key => $element) {
+          $variable[$key] = array(
+            'type' => 'string',
+            'title' => !empty($element['#title']) ? $element['#title'] : '',
+            'group' => $module,
+            'default' => !empty($element['#default_value']) ? $element['#default_value'] : '',
+            'description' => !empty($element['#description']) ? $element['#description'] : '',
+          );
+        }
+      }
+    }
+  }
+
+  return $variable;
+}
+
+/**
+ * Recursively extracts the i18n settings from a form.
+ *
+ * @param array $parent
+ *   The form parent.
+ * @param array &$settings
+ *   The i18n settings which have been found so far.
+ */
+function ms_core_extract_i18n_settings($parent, &$settings) {
+  foreach (element_children($parent) as $child_name) {
+    if (!empty($parent[$child_name]['#ms_i18n'])) {
+      $settings[$child_name] = $parent[$child_name];
+    }
+    ms_core_extract_i18n_settings($parent[$child_name], $settings);
+  }
+}
+
+/**
+ * Implements hook_action_info
+ */
+function ms_core_action_info() {
+  return array(
+    'ms_core_change_order_status_action' => array(
+      'type' => 'ms_order',
+      'label' => t('Change order status'),
+      'description' => t('Change the status of the order.'),
+      'configurable' => TRUE,
+      'behavior' => array('changes_property'),
+      'triggers' => array('any'),
+      'aggregate' => FALSE,
+    ),
+  );
+}
+
+/**
+ * Generates settings form for ms_core_change_order_status_action().
+ *
+ * @param array $context
+ *   An array of options of this action (in case it is being edited)
+ *
+ * @return array
+ *   Settings form as Form API array.
+ */
+function ms_core_change_order_status_action_form($context) {
+  $form['status'] = array(
+    '#title' => t('Status'),
+    '#type' => 'select',
+    '#options' => ms_core_get_order_statuses(),
+    '#default_value' => isset($context['status']) ? $context['status'] : '',
+  );
+  return $form;
+}
+
+/**
+ * Submit handler for ms_core_change_order_status_action.
+ *
+ * Returns an associative array of values which will be available in the
+ * $context when an action is executed.
+ */
+function ms_core_change_order_status_action_submit($form, $form_state) {
+  return array('status' => $form_state['values']['status']);
+}
+
+/**
+ * Implements hook_views_bulk_operations_object_info
+ */
+function ms_core_views_bulk_operations_object_info() {
+  return array(
+    'ms_order' => array(
+      'type' => 'ms_order',
+      'base_table' => 'ms_orders',
+      'load' => 'ms_core_order_load',
+      'title' => t('Order'),
+    ),
+  );
+}
+
+/**
+ * Implementation of ms_core_change_order_status_action action.
+ *
+ * @param object $object
+ * @param array $context
+ */
+function ms_core_change_order_status_action(&$order, $context = array()) {
+  $order->status = $context['status'];
 }

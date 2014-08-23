@@ -213,4 +213,26 @@ class ms_products_export_ui extends ctools_export_ui {
       );
     }
   }
+
+  /**
+   * Called to save the final product from the edit form.
+   */
+  function edit_save_form($form_state) {
+    $item = &$form_state['item'];
+    $export_key = $this->plugin['export']['key'];
+
+    $result = ctools_export_crud_save($this->plugin['schema'], $item);
+
+    field_attach_submit('ms_products_plan', $item, $form_state['saved_form'], $form_state);
+    field_attach_update('ms_products_plan', $item);
+
+    if ($result) {
+      $message = str_replace('%title', check_plain($item->{$export_key}), $this->plugin['strings']['confirmation'][$form_state['op']]['success']);
+      drupal_set_message($message);
+    }
+    else {
+      $message = str_replace('%title', check_plain($item->{$export_key}), $this->plugin['strings']['confirmation'][$form_state['op']]['fail']);
+      drupal_set_message($message, 'error');
+    }
+  }
 }

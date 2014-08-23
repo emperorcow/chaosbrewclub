@@ -6,11 +6,11 @@
 function ms_membership_install() {
   // Set the weight of the module to 2
   db_update('system')
-  ->fields(array(
-    'weight' => 2,
-  ))
-  ->condition('name', 'ms_membership')
-  ->execute();
+    ->fields(array(
+      'weight' => 2,
+    ))
+    ->condition('name', 'ms_membership')
+    ->execute();
 }
 
 /**
@@ -19,8 +19,8 @@ function ms_membership_install() {
 function ms_membership_uninstall() {
   // Delete related variables all at once.
   db_delete('variable')
-  ->condition('name', 'ms_membership_%%', 'LIKE')
-  ->execute();
+    ->condition('name', 'ms_membership_%%', 'LIKE')
+    ->execute();
 }
 
 // ======================================
@@ -45,7 +45,7 @@ function ms_membership_update_7701(&$sandbox) {
       $old_override_settings = $product->data['override_settings'];
       $new_override_settings = array();
 
-      foreach ($old_override_settings as $module => $info) {
+      foreach ($old_override_settings as $info) {
         if ($info['override']) {
           foreach ($info['settings'] as $key => $value) {
             if (is_array($value)) {
@@ -56,8 +56,7 @@ function ms_membership_update_7701(&$sandbox) {
                   }
                 }
               }
-            }
-            else {
+            } else {
               if ($value != variable_get($key, '')) {
                 $new_override_settings[$key] = $value;
               }
@@ -98,7 +97,6 @@ function ms_membership_update_7702(&$sandbox) {
 }
 
 
-
 /**
  * Add the deny_roles field to the ms_membership_plans table
  */
@@ -113,8 +111,8 @@ function ms_membership_update_7703(&$sandbox) {
     // Set the default to an empty array
     db_update('ms_membership_plans')
       ->fields(array(
-            'deny_roles' => serialize(array()),
-          ))
+        'deny_roles' => serialize(array()),
+      ))
       ->execute();
   }
   return t('Successfully added the deny_roles field to the ms_membership_plans database table.');
@@ -129,14 +127,12 @@ function ms_membership_update_7704(&$sandbox) {
       'type' => 'int',
       'description' => 'The Subscription is Fixed Date',
       'not null' => TRUE,
-      'disp-width' => '11',
       'default' => 0,
     ));
     db_add_field('ms_membership_plans', 'fixed_date_discount', array(
       'type' => 'int',
       'description' => 'If a discount should be applied.',
       'not null' => TRUE,
-      'disp-width' => '11',
       'default' => 1,
     ));
     db_add_field('ms_membership_plans', 'fixed_date_string', array(
@@ -167,13 +163,14 @@ function ms_membership_update_7705(&$sandbox) {
   foreach ($result as $membership) {
     if ($membership->oid AND $order = ms_core_order_load($membership->oid)
       AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid)
-      AND !empty($recurring_schedule->current_payments)) {
+      AND !empty($recurring_schedule->current_payments)
+    ) {
       db_update('ms_memberships')
-      ->fields(array(
-        'current_payments' => $recurring_schedule->current_payments,
-      ))
-      ->condition('oid', $order->oid)
-      ->execute();
+        ->fields(array(
+          'current_payments' => $recurring_schedule->current_payments,
+        ))
+        ->condition('oid', $order->oid)
+        ->execute();
     }
   }
 
@@ -188,6 +185,20 @@ function ms_membership_update_7801(&$sandbox) {
     module_enable(array('ms_products'));
   }
   return t('Made sure ms_products is enabled.');
+}
+
+/**
+ * Attempts to fully unserialize a string that may have been serialized multiple times.
+ */
+function _ms_membership_unserialize($object) {
+  for ($i = 0; $i < 6; $i++) {
+    if (is_array($object)) {
+      return $object;
+    }
+    $object = unserialize($object);
+  }
+
+  return array();
 }
 
 /**
@@ -232,6 +243,7 @@ function ms_membership_update_7802(&$sandbox) {
 
     // Fix the modify options.
     $modify_options = array();
+    $plan->modify_options = _ms_membership_unserialize($plan->modify_options);
     foreach ($plan->modify_options as $key => $value) {
       $modify_options['ms_membership_' . $key] = $value;
     }
@@ -241,31 +253,31 @@ function ms_membership_update_7802(&$sandbox) {
     // Insert into the ms_products_plans database.
     db_insert('ms_products_plans')
       ->fields(array(
-          'sku' => $plan->sku,
-          'bundle' => $plan->bundle,
-          'uid' => $plan->uid,
-          'name' => $plan->name,
-          'cart_type' => $plan->cart_type,
-          'description' => $plan->description,
-          'signup_mail_subject' => _ms_membership_migrate_tokens($plan->signup_mail_subject),
-          'signup_mail_body' => _ms_membership_migrate_tokens($plan->signup_mail_body),
-          'eot_mail_subject' => _ms_membership_migrate_tokens($plan->eot_mail_subject),
-          'eot_mail_body' => _ms_membership_migrate_tokens($plan->eot_mail_body),
-          'cancel_mail_subject' => _ms_membership_migrate_tokens($plan->cancel_mail_subject),
-          'cancel_mail_body' => _ms_membership_migrate_tokens($plan->cancel_mail_body),
-          'modify_mail_subject' => _ms_membership_migrate_tokens($plan->modify_mail_subject),
-          'modify_mail_body' => _ms_membership_migrate_tokens($plan->modify_mail_body),
-          'expiring_mail_subject' => _ms_membership_migrate_tokens($plan->expiring_mail_subject),
-          'expiring_mail_body' => _ms_membership_migrate_tokens($plan->expiring_mail_body),
-          'expiring_mail_days' => $plan->expiring_mail_days,
-          'weight' => $plan->weight,
-          'recurring_schedule' => serialize($plan->recurring_schedule),
-          'modify_options' => $plan->modify_options,
-          'allow_roles' => $plan->allow_roles,
-          'deny_roles' => $plan->deny_roles,
-          'expire_when' => $plan->expire_when,
-          'data' => serialize($plan->data),
-        ))
+        'sku' => $plan->sku,
+        'bundle' => $plan->bundle,
+        'uid' => $plan->uid,
+        'name' => $plan->name,
+        'cart_type' => $plan->cart_type,
+        'description' => $plan->description,
+        'signup_mail_subject' => _ms_membership_migrate_tokens($plan->signup_mail_subject),
+        'signup_mail_body' => _ms_membership_migrate_tokens($plan->signup_mail_body),
+        'eot_mail_subject' => _ms_membership_migrate_tokens($plan->eot_mail_subject),
+        'eot_mail_body' => _ms_membership_migrate_tokens($plan->eot_mail_body),
+        'cancel_mail_subject' => _ms_membership_migrate_tokens($plan->cancel_mail_subject),
+        'cancel_mail_body' => _ms_membership_migrate_tokens($plan->cancel_mail_body),
+        'modify_mail_subject' => _ms_membership_migrate_tokens($plan->modify_mail_subject),
+        'modify_mail_body' => _ms_membership_migrate_tokens($plan->modify_mail_body),
+        'expiring_mail_subject' => _ms_membership_migrate_tokens($plan->expiring_mail_subject),
+        'expiring_mail_body' => _ms_membership_migrate_tokens($plan->expiring_mail_body),
+        'expiring_mail_days' => $plan->expiring_mail_days,
+        'weight' => $plan->weight,
+        'recurring_schedule' => serialize($plan->recurring_schedule),
+        'modify_options' => $plan->modify_options,
+        'allow_roles' => $plan->allow_roles,
+        'deny_roles' => $plan->deny_roles,
+        'expire_when' => $plan->expire_when,
+        'data' => serialize($plan->data),
+      ))
       ->execute();
 
     // Migrate translation strings.
@@ -346,12 +358,14 @@ function ms_membership_update_7802(&$sandbox) {
 
   // Migrate existing views.
   if (module_exists('views')) {
-    _ms_membership_migrate_views();
+    // It is too hard to migrate views like this. They need to be migrated manually.
+    //_ms_membership_migrate_views();
   }
 
   // Migrate existing rules using the database.
   if (module_exists('rules')) {
-    _ms_membership_migrate_rules($skus);
+    // It is too unreliable to migrate rules this way, so they will need to be manually migrated.
+    //_ms_membership_migrate_rules($skus);
   }
 
   return t('Successfully migrated membership plans and memberships to use the MS Products API.');
@@ -391,8 +405,8 @@ function ms_membership_update_7803(&$sandbox) {
  */
 function _ms_membership_rrmdir($dir) {
   if (is_dir($dir)) {
-    foreach(glob($dir . '/*') as $file) {
-      if(is_dir($file))
+    foreach (glob($dir . '/*') as $file) {
+      if (is_dir($file))
         _ms_membership_rrmdir($file);
       else
         unlink($file);

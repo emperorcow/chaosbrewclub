@@ -1,12 +1,12 @@
 <?php
 
 /**
-* @file
-*/
+ * @file
+ */
 
 /**
-* Implementation of hook_uninstall().
-*/
+ * Implementation of hook_uninstall().
+ */
 function ms_gift_membership_uninstall() {
   // Delete related variables all at once.
   db_delete('variable')
@@ -15,8 +15,8 @@ function ms_gift_membership_uninstall() {
 }
 
 /**
-* Implementation of hook_schema().
-*/
+ * Implementation of hook_schema().
+ */
 function ms_gift_membership_schema() {
   $schema['ms_gift_memberships'] = array(
     'description' => 'Used to record all gift memberships',
@@ -25,13 +25,11 @@ function ms_gift_membership_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11'
       ),
       'oid' => array(
         'type' => 'int',
         'description' => 'The unique order ID',
         'not null' => TRUE,
-        'disp-width' => '11'
       ),
       'mpid' => array(
         'type' => 'varchar',
@@ -44,35 +42,30 @@ function ms_gift_membership_schema() {
         'type' => 'int',
         'description' => 'The Status of the Gift Membership',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 1
       ),
       'gift_date' => array(
         'type' => 'int',
         'description' => 'The date the gift should be sent',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0
       ),
       'opened_date' => array(
         'type' => 'int',
         'description' => 'Date the gift was opened',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0
       ),
       'sent_date' => array(
         'type' => 'int',
         'description' => 'Date the gift was last sent',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0
       ),
       'created' => array(
         'type' => 'int',
         'description' => 'Timestamp this record was created',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0
       ),
       'receiver_name' => array(
@@ -107,7 +100,6 @@ function ms_gift_membership_schema() {
         'type' => 'int',
         'description' => 'Whether to send by mail',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0
       ),
       'gift_code' => array(

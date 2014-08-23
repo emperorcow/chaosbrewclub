@@ -181,7 +181,6 @@ function ms_ibis_admin() {
  * Page Callback: Redirect to IBIS.
  */
 function ms_ibis_checkout() {
-  $build = array();
   // Stop the caching
   $GLOBALS['conf']['cache'] = FALSE;
 
@@ -222,8 +221,7 @@ function ms_ibis_cron() {
       $result = explode('RESULT: ', $resp);
       $result = preg_split('/\r\n|\r|\n/', $result[1]);
       $result = $result[0];
-    }
-    else {
+    } else {
       $result = '';
     }
 
@@ -231,8 +229,7 @@ function ms_ibis_cron() {
       $result_code = explode('RESULT_CODE: ', $resp);
       $result_code = preg_split('/\r\n|\r|\n/', $result_code[1]);
       $result_code = $result_code[0];
-    }
-    else {
+    } else {
       $result_code = '';
     }
 
@@ -240,8 +237,7 @@ function ms_ibis_cron() {
       $count_reversal = explode('FLD_075: ', $resp);
       $count_reversal = preg_split('/\r\n|\r|\n/', $count_reversal[1]);
       $count_reversal = $count_reversal[0];
-    }
-    else {
+    } else {
       $count_reversal = '';
     }
 
@@ -249,8 +245,7 @@ function ms_ibis_cron() {
       $count_transaction = explode('FLD_076: ', $resp);
       $count_transaction = preg_split('/\r\n|\r|\n/', $count_transaction[1]);
       $count_transaction = $count_transaction[0];
-    }
-    else {
+    } else {
       $count_transaction = '';
     }
 
@@ -258,8 +253,7 @@ function ms_ibis_cron() {
       $amount_reversal = explode('FLD_087: ', $resp);
       $amount_reversal = preg_split('/\r\n|\r|\n/', $amount_reversal[1]);
       $amount_reversal = $amount_reversal[0];
-    }
-    else {
+    } else {
       $amount_reversal = '';
     }
 
@@ -267,23 +261,22 @@ function ms_ibis_cron() {
       $amount_transaction = explode('FLD_088: ', $resp);
       $amount_transaction = preg_split('/\r\n|\r|\n/', $amount_transaction[1]);
       $amount_transaction = $amount_transaction[0];
-    }
-    else {
+    } else {
       $amount_transaction = '';
     }
 
     $now = format_date(REQUEST_TIME, 'custom', 'Y-m-d H:i:s');
-    $result = db_insert('ms_ibis_batch')
-    ->fields(array(
-      'result' => $result,
-      'result_code' => $result_code,
-      'count_reversal' => $count_reversal,
-      'count_transaction' => $count_transaction,
-      'amount_reversal' => $amount_reversal,
-      'amount_transaction' => $amount_transaction,
-      'close_date' => $now,
-      'response' => $resp,
-    ))
-    ->execute();
+    db_insert('ms_ibis_batch')
+      ->fields(array(
+        'result' => $result,
+        'result_code' => $result_code,
+        'count_reversal' => $count_reversal,
+        'count_transaction' => $count_transaction,
+        'amount_reversal' => $amount_reversal,
+        'amount_transaction' => $amount_transaction,
+        'close_date' => $now,
+        'response' => $resp,
+      ))
+      ->execute();
   }
 }

@@ -46,7 +46,6 @@ function ms_authorizenet_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'uid' => array(
         'type' => 'int',

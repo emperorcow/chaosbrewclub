@@ -19,6 +19,8 @@ function ms_ep_ms_core_payment_gateway() {
     'nordea' => t('Nordea Estonia'),
   );
 
+  $gateways = array();
+
   foreach ($methods as $method => $name) {
     $gateways['ms_ep_' . $method] = array(
       'name' => $name,
@@ -49,7 +51,18 @@ function ms_ep_return(MsOrder $order) {
       $nordea_test = ms_ep_banklink_verify_nordea_signature($_GET, $order);
     }
   }
-  // Test bank signature if results are not empty then create order.
+
+  if (isset($_POST['VK_AMOUNT']) && isset($_POST['VK_CURRENCY'])) {
+    // Check that the currency and amount match the order.
+    if (!ms_core_valid_payment($order, 'cart', $_POST['VK_AMOUNT']) || $_POST['VK_CURRENCY'] != $order->currency) {
+      drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+      ms_core_log_error('ms_ep', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+        array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($_POST)));
+      return FALSE;
+    }
+  }
+
+  // Test bank signature if results are not empty then create payment.
   $payment = ms_core_new_payment($order->oid, $order->gateway, 'cart', $order->amount, $order->currency);
 
   if (isset($key_test)) {
@@ -62,7 +75,7 @@ function ms_ep_return(MsOrder $order) {
     $payment->amount = 0;
     $payment->type = 'failed';
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
     drupal_set_message(t("Payment cancelled."), 'error');
     return FALSE;
   }
@@ -74,7 +87,7 @@ function ms_ep_return(MsOrder $order) {
     return FALSE;
   }
 
-  ms_core_enter_payment($payment, FALSE);
+  ms_core_enter_payment($payment);
 
   return TRUE;
 }

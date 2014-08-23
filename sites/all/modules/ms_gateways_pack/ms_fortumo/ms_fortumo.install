@@ -11,8 +11,8 @@
 function ms_fortumo_uninstall() {
   // Delete related variables all at once.
   db_delete('variable')
-  ->condition('name', 'ms_fortumo_%%', 'LIKE')
-  ->execute();
+    ->condition('name', 'ms_fortumo_%%', 'LIKE')
+    ->execute();
 }
 
 /**
@@ -26,7 +26,6 @@ function ms_fortumo_schema() {
         'type' => 'serial',
         'description' => 'The serial key',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'code' => array(
         'type' => 'varchar',
@@ -62,7 +61,6 @@ function ms_fortumo_schema() {
         'type' => 'int',
         'description' => 'Test mode',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
       'message' => array(
@@ -123,10 +121,9 @@ function ms_fortumo_schema() {
         'type' => 'int',
         'description' => 'Date the message was received',
         'not null' => TRUE,
-        'disp-width' => '11',
         'default' => 0,
       ),
-      ),
+    ),
     'primary key' => array('id'),
   );
 

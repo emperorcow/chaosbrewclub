@@ -364,7 +364,6 @@ function ms_pfp_billing_page_form($form, &$form_state, $order) {
     '#type' => 'select',
     '#title' => t('Country'),
     '#options' => ms_core_get_countries('iso'),
-    '#default_value' => 'US',
     '#required' => TRUE,
     '#default_value' => $payment_profile->country,
   );
@@ -422,8 +421,7 @@ function ms_pfp_billing_page_form_validate($form, &$form_state) {
   if (!$profile->update()) {
     // Failed
     form_set_error('cc_number', t('Error: @message', array('@message' => $profile->getReturnMsg())));
-  }
-  else {
+  } else {
     // Success
     drupal_set_message(t('Successfully changed your billing information.'));
 
@@ -450,7 +448,7 @@ function ms_pfp_billing_page_form_validate($form, &$form_state) {
     ms_core_payment_profile_save($payment_profile);
 
     ms_core_add_history_item($order, 0, t('Payflow: CC into for recurring profile @pid updated.',
-           array('@pid' => $pid)));
+      array('@pid' => $pid)));
   }
 }
 
@@ -501,19 +499,17 @@ function ms_pfp_cancel_page_confirm_submit($form, &$form_state) {
       array('@pid' => $subscription_id, '@error_msg' => $message)));
     ms_core_log_error('ms_pfp', 'Payflow: Recurring profile @pid cancel error: @error_msg.',
       array('@pid' => $subscription_id, '@error_msg' => $message));
-  }
-  else {
+  } else {
     // Success, Enter the rec_cancel payment
     $payment = ms_core_new_payment($order->oid, 'ms_pfp', 'rec_cancel');
 
     $payment->transaction = ms_core_new_transaction($profile);
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $subscription_id;
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     drupal_set_message(t('Your subscription has been canceled.'));
 
@@ -566,15 +562,13 @@ function ms_pfp_modify_page($oid, $id) {
     $payment->recurring_id = $profile_id;
     $payment->currency = $order->currency;
     $payment->data = array('new_product' => $new_product);
-    $payment->recurring_schedule = $new_product->recurring_schedule;
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     drupal_goto();
-  }
-  else {
+  } else {
     drupal_set_message(t('There was a problem modifying your billing cycle. The error has been logged. Please contact a site admin for further help.'));
     // Log the error
     ms_core_log_error('ms_pfp', 'There was a problem changing the recurring payments: @error',
@@ -582,6 +576,35 @@ function ms_pfp_modify_page($oid, $id) {
 
     drupal_goto();
   }
+}
+
+function ms_pfp_recurring_update($order, $profile_id, $updates) {
+  $profile = new PayflowProRecurring($profile_id, _ms_pfp_get_auth());
+  $profile->refresh();
+
+  foreach ($updates as $key => $val) {
+    $profile->setUpdate($key, $val);
+  }
+
+  if ($profile->update()) {
+    $result = array(
+      'success' => TRUE,
+      'comment' => t('Updated Profile'),
+      'txn_id' => ms_core_generate_transaction_id(),
+      'message' => $profile->getReturnMsg(),
+      'code' => $profile->getReturnCode(),
+    );
+  } else {
+    $result = array(
+      'success' => FALSE,
+      'message' => $profile->getReturnMsg(),
+      'code' => $profile->getReturnCode(),
+    );
+  }
+
+  ms_core_add_history_item($order, 0, $profile->getReturnMsg(), TRUE);
+
+  return $result;
 }
 
 /********************************************************************
@@ -648,7 +671,7 @@ function ms_pfp_checkout_form_validate($form, &$form_state) {
       $response = ms_pfp_setup_recurring_payment($order, $v, $order->recurring_schedule);
 
       if (!empty($response['data']['response']['ExtData'])) {
-        foreach($response['data']['response']['ExtData'] as $i => $obj) {
+        foreach ($response['data']['response']['ExtData'] as $i => $obj) {
           $response['data']['response']['ExtData'][$i] = (string)$obj;
         }
       }
@@ -664,7 +687,6 @@ function ms_pfp_checkout_form_validate($form, &$form_state) {
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
         $payment->amount = 0;
-        $payment->recurring_schedule = $order->recurring_schedule;
         $payment->recurring_id = $response['data']['subscr_id'];
 
         // Update the address
@@ -683,7 +705,7 @@ function ms_pfp_checkout_form_validate($form, &$form_state) {
 
         // Add the Payment to the Order
         $payment->amount = $response['amount'];
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Reload the order to get the uid
         $order = ms_core_order_load($order->oid);
@@ -712,8 +734,7 @@ function ms_pfp_checkout_form_validate($form, &$form_state) {
 
         // Redirect
         $form_state['redirect'] = 'ms/thankyou';
-      }
-      else {
+      } else {
         // Log the error
         ms_core_log_error('ms_pfp', 'Error Setting up Recurring Payments: @message',
           array('@message' => $response['message']));
@@ -779,8 +800,7 @@ function ms_pfp_checkout_form_validate($form, &$form_state) {
           'exp_year' => $v['cc_exp_year'],
         );
         ms_core_payment_profile_save($payment_profile);
-      }
-      else { // The Credit Card was not approved, set an error on the form
+      } else { // The Credit Card was not approved, set an error on the form
         form_set_error('cc_number', t('Error: !error', array('!error' => $response['message'])));
         ms_core_log_error('ms_pfp', 'Error Processing Direct Payment Form: !error Details: !details',
           array('!error' => $response['message'], '!details' => ms_core_print_r($response)), WATCHDOG_WARNING);
@@ -798,8 +818,7 @@ function ms_pfp_checkout_form_submit($form, &$form_state) {
   // If the Order was charged, complete it
   if (isset($v['ms_order_charged']) AND $v['ms_order_charged']) {
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -817,13 +836,10 @@ function ms_pfp_charge($order, $amount, $data) {
     return array('success' => FALSE);
   }
 
-  global $user;
-
   $request = _ms_pfp_cc_sale_xml($order, $amount, $data);
   $response = _ms_pfp_submit_xml($request);
 
   if (!$response) {
-    $message = t('Received blank response from the PayFlow Pro gateway.');
     $result = array(
       'success' => FALSE,
       'message' => t('Received blank response from the PayFlow Pro gateway.'),
@@ -835,16 +851,11 @@ function ms_pfp_charge($order, $amount, $data) {
   $txn_result_code = $response['Result'];
   $txn_message = $response['Message'];
 
-  if ((int) $txn_result_code != 0) {
-    $message = t('Credit card declined for !amount with error code @return_code (@message).', array(
-      '!amount' => ms_core_format_money($amount),
-      '@return_code' => $txn_result_code,
-      '@message' => $txn_message,
-    ));
+  if ((int)$txn_result_code != 0) {
     $data = array();
-    $data['pnref'] = check_plain((string) $response['PNRef']);
-    $data['authcode'] = check_plain((string) $response['AuthCode']);
-    $data['result'] = check_plain((string) $response['Result']);
+    $data['pnref'] = check_plain((string)$response['PNRef']);
+    $data['authcode'] = check_plain((string)$response['AuthCode']);
+    $data['result'] = check_plain((string)$response['Result']);
     $data['pfp_response'] = $response;
 
     $result = array(
@@ -852,18 +863,13 @@ function ms_pfp_charge($order, $amount, $data) {
       'message' => t('Credit card payment declined: @text', array('@text' => $txn_message)),
       'data' => $data,
     );
-  }
-  else {
+  } else {
     $x_approval_code = $response['AuthCode'];
     $pnref = $response['PNRef'];
-    $message = t('Credit card payment processed successfully with approval code @code and pnref @pnref.', array(
-      '@code' => $x_approval_code,
-      '@pnref' => $pnref,
-    ));
     $data = array();
-    $data['pnref'] = check_plain((string) $response['PNRef']);
-    $data['authcode'] = check_plain((string) $response['AuthCode']);
-    $data['result'] = check_plain((string) $response['Result']);
+    $data['pnref'] = check_plain((string)$response['PNRef']);
+    $data['authcode'] = check_plain((string)$response['AuthCode']);
+    $data['result'] = check_plain((string)$response['Result']);
     $data['pfp_response'] = $response;
     $result = array(
       'success' => TRUE,
@@ -950,8 +956,7 @@ function ms_pfp_setup_recurring_payment($order, $data, $recurring_schedule) {
 
     // Set the start_date to after the trial period ends
     $start_date = strtotime("+1 " . ms_pfp_switch_unit_english($recurring_schedule['trial_unit']));
-  }
-  else {
+  } else {
     // Charge the initial amount first
     $amount = $recurring_schedule['main_amount'];
     $profile->setOptionalTransAmt($recurring_schedule['main_amount']);
@@ -990,8 +995,7 @@ function ms_pfp_setup_recurring_payment($order, $data, $recurring_schedule) {
         'response' => $result,
       ),
     );
-  }
-  else {
+  } else {
     $message = t('Recurring payment declined with error code @return_code (@message).', array(
       '@return_code' => $result['Result'],
       '@message' => $result['Message'],
@@ -1074,8 +1078,7 @@ function _ms_pfp_submit_xml($xml, $mode = NULL) {
 
   if ($mode == null) {
     $url = $servers[variable_get('ms_pfp_mode', 'test')];
-  }
-  else {
+  } else {
     $url = $servers[$mode];
   }
 
@@ -1111,25 +1114,22 @@ function _ms_pfp_submit_xml($xml, $mode = NULL) {
   $curl_response = curl_exec($ch);
 
   if (!$curl_response) {
-    watchdog('ms_pfp', 'Connecting to PayFlow server failed: %error', array('%error' => curl_error($ch)), WATCHDOG_ERROR);
+    ms_core_log_error('ms_pfp', 'Connecting to PayFlow server failed: %error', array('%error' => curl_error($ch)));
   }
 
   curl_close($ch);
 
   if ($curl_response == '') {
     $response = FALSE;
-  }
-  else {
+  } else {
     $xml_response = @simplexml_load_string($curl_response);
     if ($xml_response === FALSE) {
       // Response wasn't valid XML, some errors come back as strings.
-      watchdog('ms_pfp', 'PayFlow server returned a non-XML error: %error', array('%error' => $curl_response), WATCHDOG_ERROR);
+      ms_core_log_error('ms_pfp', 'PayFlow server returned a non-XML error: %error', array('%error' => $curl_response));
       $response = FALSE;
-    }
-    elseif (isset($xml_response->ResponseData->RecurringProfileResults)) {
+    } elseif (isset($xml_response->ResponseData->RecurringProfileResults)) {
       $response = $xml_response->ResponseData->RecurringProfileResults;
-    }
-    else {
+    } else {
       $response = $xml_response->ResponseData->TransactionResults->TransactionResult;
     }
   }
@@ -1226,7 +1226,7 @@ function _ms_pfp_cc_info_xml($order, $data) {
   $cc_exp_year = $data['cc_exp_year'];
   $cc_exp_month = sprintf('%02d', $data['cc_exp_month']);
 
-  $cc_exp = $cc_exp_year .  $cc_exp_month;
+  $cc_exp = $cc_exp_year . $cc_exp_month;
 
   $xml = '
               <Card>
@@ -1265,7 +1265,7 @@ function _ms_pfp_check_requirements() {
  * Helper function to translate the xml object to an array
  */
 function _ms_pfp_xml2array($xml_object, $out = array()) {
-  foreach ((array) $xml_object as $index => $node) {
+  foreach ((array)$xml_object as $index => $node) {
     $out[$index] = (is_object($node)) ? _ms_pfp_xml2array($node) : $node;
   }
 
@@ -1297,15 +1297,13 @@ function ms_pfp_parse_payflow_string($str) {
 
       $out[$matches[1]] = substr($workstr, 0, $count);
       $workstr = substr($workstr, $count + 1); // "+1" because we need to get rid of the "&"
-    }
-    else {
+    } else {
       // Read up to the next "&"
       $count = strpos($workstr, '&');
       if ($count === FALSE) { // No more "&"'s, read up to the end of the string
         $out[$substr] = $workstr;
         $workstr = "";
-      }
-      else {
+      } else {
         $out[$substr] = substr($workstr, 0, $count);
         $workstr = substr($workstr, $count + 1); // "+1" because we need to get rid of the "&"
       }
@@ -1327,11 +1325,10 @@ function ms_pfp_sync_profiles() {
     $profile->refresh();
 
     $last_recorded_payment = ms_core_get_last_payment($order);
+    $last_payment = $profile->getLastPayment();
 
     if ($profile->getStatus() == 'ACTIVE') {
       // If a payment occurred, the pnref needs to be updated in the database.
-      $last_payment = $profile->getLastPayment();
-
       // If we have recorded this payment already, just ignore it
       if ($last_recorded_payment->transaction == $last_payment['PNREF']) {
         continue;
@@ -1347,32 +1344,26 @@ function ms_pfp_sync_profiles() {
         $payment->recurring_id = $pid;
         $payment->data = $last_payment;
 
-        $payment->recurring_schedule = $order->recurring_schedule;
-
         // Update the address
         $payment->billing_address = $order->billing_address;
         $payment->shipping_address = $order->shipping_address;
 
-        ms_core_enter_payment($payment, FALSE);
-      }
-      else {
+        ms_core_enter_payment($payment);
+      } else {
         // We need to insert a failed payment
         $payment = ms_core_new_payment($order->oid, $order->gateway, 'failed', 0, $order->currency);
         $payment->transaction = $last_payment['PNREF'];
         $payment->recurring_id = $pid;
         $payment->data = $last_payment;
-        $payment->recurring_schedule = $order->recurring_schedule;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
       }
-    }
-    else {
+    } else {
       // We need to cancel the order
       $payment = ms_core_new_payment($order->oid, $order->gateway, 'rec_cancel', 0, $order->currency);
       $payment->transaction = $last_payment['PNREF'];
       $payment->recurring_id = $pid;
       $payment->data = $last_payment;
-      $payment->recurring_schedule = $order->recurring_schedule;
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
     }
 
     // There could potentially be a whole lot of rows to process, so clean up memory.

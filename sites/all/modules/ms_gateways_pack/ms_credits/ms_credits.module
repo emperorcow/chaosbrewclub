@@ -75,11 +75,12 @@ function ms_credits_menu() {
 }
 
 /**
- * Access test to see if the user can access the credits tab
+ * Access test to see if the user can access the credits tab.
  *
  * @param $account
- *   The account
- * @return
+ *   The account.
+ *
+ * @return bool
  *   Returns TRUE if the user has access, FALSE otherwise
  */
 function ms_credits_access_test($account) {
@@ -126,16 +127,15 @@ function ms_credits_cron() {
       $payment->amount = $response['data']['amount'];
       $payment->currency = variable_get('ms_credits_name', 'Credits');
       $payment->data = $response['data'];
-      $payment->recurring_schedule = $order->recurring_schedule;
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       // Check if the recurring_schedule is done, send rec_eot
       if ($recurring_schedule->total_occurrences != 0 AND $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
         $payment->type = 'rec_eot';
         $payment->amount = 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
       }
     }
     else {
@@ -148,10 +148,9 @@ function ms_credits_cron() {
 
       $payment->transaction = drupal_get_token(serialize($order));
       $payment->data = $response['data'];
-      $payment->recurring_schedule = $order->recurring_schedule;
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
     }
   }
 }
@@ -334,21 +333,23 @@ function ms_credits_get_user_balance($uid) {
 /**
  * Performs a credit transaction
  *
- * This can be used to both add or subtract credits from a user's balance
+ * This can be used to both add or subtract credits from a user's balance.
  *
  * @param $uid
- *   The user's uid
+ *   The user's uid.
  * @param $credits
- *   The number of credits to add or subtract. To subtract, simply enter a negative amount
- * @param $note
+ *   The number of credits to add or subtract. To subtract, simply enter a negative amount.
+ * @param string $note
  *   (Optional) A note to attach to this transaction. This will show in the history.
- * @param $oid
+ * @param int $oid
  *   (Optional) An order id to associate with this transaction. This will show in the history.
- * @param $created
- *   (Optional) The timestamp to use for this transaction. Defaults to now
+ * @param int $created
+ *   (Optional) The timestamp to use for this transaction. Defaults to now.
+ * @param int $expiration
+ *   (Optional) The timestamp to use for the expiration. Defaults to 0.
  *
  * @return mixed
- *   An array with information about the transaction
+ *   An array with information about the transaction.
  */
 function ms_credits_transaction($uid, $credits, $note = '', $oid = 0, $created = 0, $expiration = 0) {
   $balance = ms_credits_get_user_balance($uid);
@@ -458,12 +459,11 @@ function ms_credits_cancel_page_confirm_submit($form, &$form_state) {
   // Generate a Unique Transaction ID
   $payment->transaction = drupal_get_token(serialize($order) . REQUEST_TIME);
   $payment->currency = $order->currency;
-  $payment->recurring_schedule = $order->recurring_schedule;
   $payment->recurring_id = $subscription_id;
   $payment->billing_address = $order->billing_address;
   $payment->shipping_address = $order->shipping_address;
 
-  ms_core_enter_payment($payment, FALSE);
+  ms_core_enter_payment($payment);
 
   $form_state['redirect'] = '';
 }
@@ -510,8 +510,7 @@ function ms_credits_user_page($account) {
  * Implements hook_ms_core_currency_sign_alter().
  */
 function ms_credits_ms_core_currency_sign_alter(&$sign, $variables) {
-  extract($variables);
-  switch ($currency_code) {
+  switch ($variables['currency_code']) {
     case 'CRD':
       $sign = variable_get('ms_credits_name', 'Credits');
       break;
@@ -522,16 +521,15 @@ function ms_credits_ms_core_currency_sign_alter(&$sign, $variables) {
  * Implements hook_ms_core_currency_format_alter().
  */
 function ms_credits_ms_core_currency_format_alter(&$format, $variables) {
-  extract($variables);
-  switch ($currency_code) {
+  switch ($variables['currency_code']) {
     case 'CRD':
-      switch ($context) {
+      switch ($variables['context']) {
         case 'payment_amount':
         case 'order_total':
           $format = "[number] [sign]";
           break;
         default:
-          $credits = ms_credits_amount_to_credits($amount);
+          $credits = ms_credits_amount_to_credits($variables['amount']);
           $format = $credits . " [sign]";
           break;
       }
@@ -540,13 +538,13 @@ function ms_credits_ms_core_currency_format_alter(&$format, $variables) {
 }
 
 /**
- * Build the credits history table for a user account
+ * Build the credits history table for a user account.
  *
  * @param $account
- *   The account to get the credits history for
+ *   The account to get the credits history for.
  *
- * @return
- *   The themed history table
+ * @return string
+ *   The themed history table.
  */
 function ms_credits_history_table($account) {
   $headers = array(
@@ -593,9 +591,6 @@ function ms_credits_history_table($account) {
  * Checkout an order automatically
  */
 function ms_credits_one_click_checkout($order) {
-  // Load the account
-  $account = user_load($order->uid);
-
   // Otherwise let's charge the order
   switch ($order->order_type) {
     case 'recurring':
@@ -610,10 +605,9 @@ function ms_credits_one_click_checkout($order) {
         $payment->amount = $response['data']['amount'];
         $payment->currency = $response['data']['currency'];
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         ms_core_show_order_messages($order);
       }
@@ -635,7 +629,7 @@ function ms_credits_one_click_checkout($order) {
         $payment->data = $response['data'];
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         ms_core_show_order_messages($order);
       }
@@ -697,10 +691,9 @@ function ms_credits_checkout_page_form_submit($form, &$form_state) {
         $payment->amount = $response['data']['amount'];
         $payment->currency = $response['data']['currency'];
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         ms_core_show_order_messages($order);
         $form_state['redirect'] = 'ms/thankyou';
@@ -723,7 +716,7 @@ function ms_credits_checkout_page_form_submit($form, &$form_state) {
         $payment->data = $response['data'];
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         ms_core_show_order_messages($order);
         $form_state['redirect'] = 'ms/thankyou';
@@ -775,7 +768,7 @@ function ms_credits_charge_recurring($order, $recurring_schedule) {
 
   // Deduct the correct amount from the user's credits, and return
   $credits_amount = ms_credits_amount_to_credits($order->amount);
-  $credits_txn = ms_credits_transaction($account->uid, -$credits_needed, t('Recurring Charge.'), $order->oid);
+  $credits_txn = ms_credits_transaction($account->uid, -$credits_amount, t('Recurring Charge.'), $order->oid);
 
   if ($credits_txn['status']) {
     $return['approved'] = TRUE;

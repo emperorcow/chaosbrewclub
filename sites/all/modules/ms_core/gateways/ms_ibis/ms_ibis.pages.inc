@@ -20,16 +20,10 @@ function ms_ibis_complete() {
 
   $resp = $merchant->getTransResult(urlencode($trans_id), ip_address());
 
-  $result_code = explode(':', $resp);
-  $result_code = substr($result_code[2], 1, 3);
-
   $failed = FALSE;
   if (substr($resp, 8, 8) == 'DECLINED') {
-    $result_code = 'DECLINED';
     $failed = TRUE;
-  }
-  elseif (substr($resp, 8, 6) == 'FAILED') {
-    $result_code = 'FAILED: ' . $result_code;
+  } elseif (substr($resp, 8, 6) == 'FAILED') {
     $failed = TRUE;
   }
 
@@ -41,8 +35,7 @@ function ms_ibis_complete() {
       $result = explode('RESULT: ', $resp);
       $result = preg_split('/\r\n|\r|\n/', $result[1]);
       $result = $result[0];
-    }
-    else {
+    } else {
       $result = '';
     }
 
@@ -50,8 +43,7 @@ function ms_ibis_complete() {
       $result_code = explode('RESULT_CODE: ', $resp);
       $result_code = preg_split('/\r\n|\r|\n/', $result_code[1]);
       $result_code = $result_code[0];
-    }
-    else {
+    } else {
       $result_code = '';
     }
 
@@ -59,8 +51,7 @@ function ms_ibis_complete() {
       $result_3dsecure = explode('3DSECURE: ', $resp);
       $result_3dsecure = preg_split('/\r\n|\r|\n/', $result_3dsecure[1]);
       $result_3dsecure = $result_3dsecure[0];
-    }
-    else {
+    } else {
       $result_3dsecure = '';
     }
 
@@ -68,65 +59,56 @@ function ms_ibis_complete() {
       $card_number = explode('CARD_NUMBER: ', $resp);
       $card_number = preg_split('/\r\n|\r|\n/', $card_number[1]);
       $card_number = $card_number[0];
-    }
-    else {
+    } else {
       $card_number = '';
     }
 
-    $result = db_update('ms_ibis_transaction')
-    ->fields(array(
-      'order_id' => $order_id,
-      'result' => $result,
-      'result_code' => $result_code,
-      'result_3dsecure' => $result_3dsecure,
-      'card_number' => $card_number,
-      'response' => $resp,
-    ))
-    ->condition('trans_id', $trans_id)
-    ->execute();
-  }
-  else {
-    $result = db_insert('ms_ibis_error')
-    ->fields(array(
-      'error_time' => $now,
-      'action' => 'ReturnOkURL',
-      'response' => $resp,
-    ))
-    ->execute();
+    db_update('ms_ibis_transaction')
+      ->fields(array(
+        'order_id' => $order_id,
+        'result' => $result,
+        'result_code' => $result_code,
+        'result_3dsecure' => $result_3dsecure,
+        'card_number' => $card_number,
+        'response' => $resp,
+      ))
+      ->condition('trans_id', $trans_id)
+      ->execute();
+  } else {
+    db_insert('ms_ibis_error')
+      ->fields(array(
+        'error_time' => $now,
+        'action' => 'ReturnOkURL',
+        'response' => $resp,
+      ))
+      ->execute();
   }
 
   $payment = ms_core_new_payment($order_id, 'ms_ibis', 'cart');
   $order = ms_core_order_load($order_id);
 
   if ($failed == TRUE) {
-    global $user;
-
-    // Save POST information.
-    $post_ser = serialize($_REQUEST);
-    // Save responce.
-    $responce_ser = serialize($resp);
     drupal_set_message(t('Payment failed. Check card number and expiration date.'), 'error');
 
     $payment->type = 'failed';
 
     ms_core_log_error('ms_ibis', 'Payment failed: !result', array('!result' => $resp));
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     // Go back to checkout.
     $order->status = 'checkout';
     $order->save();
     ms_core_set_order_session($order);
     drupal_goto('ms/checkout');
-  }
-  else {
+  } else {
     ms_core_log('ms_ibis', 'Receiving new order notification for order !order_id.', array('!order_id' => $order->order_number));
     ms_core_log('ms_ibis', 'Payment received: !result', array('!result' => $resp));
 
     $payment->amount = $order->amount;
     $payment->currency = $order->currency;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     drupal_set_message(t('Thank you for your payment!'));
 
@@ -154,13 +136,13 @@ function ms_ibis_failed() {
 
   $resp = $merchant->getTransResult(urlencode($trans_id), $client_ip_addr);
   $resp = $error_msg . ' + ' . $resp;
-  $result = db_insert('ms_ibis_error')
-  ->fields(array(
-    'error_time' => $now,
-    'action' => 'ReturnFailURL',
-    'response' => $resp,
-  ))
-  ->execute();
+  db_insert('ms_ibis_error')
+    ->fields(array(
+      'error_time' => $now,
+      'action' => 'ReturnFailURL',
+      'response' => $resp,
+    ))
+    ->execute();
   drupal_set_message(check_plain(t('Technical error occurred! Please contact merchant! !message'), array('!message' => $error_msg)));
   drupal_goto();
 }
@@ -188,8 +170,7 @@ function ms_ibis_refund(MsPayment $payment) {
       $result = explode('RESULT: ', $resp);
       $result = preg_split('/\r\n|\r|\n/', $result[1]);
       $result = $result[0];
-    }
-    else {
+    } else {
       $result = '';
     }
 
@@ -197,35 +178,33 @@ function ms_ibis_refund(MsPayment $payment) {
       $result_code = explode('RESULT_CODE: ', $resp);
       $result_code = preg_split('/\r\n|\r|\n/', $result_code[1]);
       $result_code = $result_code[0];
-    }
-    else {
+    } else {
       $result_code = '';
     }
 
-    $result = db_update('ms_ibis_transaction')
-    ->fields(array(
+    db_update('ms_ibis_transaction')
+      ->fields(array(
         'reversal_amount' => $amount,
         'result_code' => $result_code,
         'result' => $result,
         'response' => $resp,
       ))
-    ->condition('trans_id', $_REQUEST['trans_id'])
-    ->execute();
+      ->condition('trans_id', $_REQUEST['trans_id'])
+      ->execute();
     ms_core_log('ms_ibis', 'Payment reversed: !result', array('!result' => $resp));
     drupal_set_message(t('Payment reversed.'));
     drupal_goto('admin/store/orders/' . $id);
 
-  }
-  else {
+  } else {
     ms_core_log('ms_ibis', 'Payment reverse failed: !result', array('!result' => $resp . $trans_id));
     drupal_set_message(t('Payment reverse failed.'));
     drupal_goto('admin/store/orders/' . $id);
-    $result = db_insert('ms_ibis_error')
-    ->fields(array(
-      'error_time' => $now,
-      'action' => 'reverse',
-      'response' => $resp,
-    ))
-    ->execute();
+    db_insert('ms_ibis_error')
+      ->fields(array(
+        'error_time' => $now,
+        'action' => 'reverse',
+        'response' => $resp,
+      ))
+      ->execute();
   }
 }

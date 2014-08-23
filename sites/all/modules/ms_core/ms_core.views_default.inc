@@ -153,12 +153,16 @@ function ms_core_exported_default_view_orders() {
   $handler->display->display_options['fields']['currency']['id'] = 'currency';
   $handler->display->display_options['fields']['currency']['table'] = 'ms_orders';
   $handler->display->display_options['fields']['currency']['field'] = 'currency';
+  $handler->display->display_options['fields']['currency']['exclude'] = TRUE;
   $handler->display->display_options['fields']['currency']['element_label_colon'] = FALSE;
   /* Field: Order: Total */
   $handler->display->display_options['fields']['total']['id'] = 'total';
   $handler->display->display_options['fields']['total']['table'] = 'ms_orders';
   $handler->display->display_options['fields']['total']['field'] = 'total';
-  $handler->display->display_options['fields']['total']['precision'] = '0';
+  $handler->display->display_options['fields']['total']['alter']['alter_text'] = TRUE;
+  $handler->display->display_options['fields']['total']['alter']['text'] = '[currency] [total]';
+  $handler->display->display_options['fields']['total']['set_precision'] = TRUE;
+  $handler->display->display_options['fields']['total']['precision'] = '2';
   /* Field: Order: Created */
   $handler->display->display_options['fields']['created']['id'] = 'created';
   $handler->display->display_options['fields']['created']['table'] = 'ms_orders';
@@ -316,6 +320,7 @@ function ms_core_exported_default_view_orders() {
     t('Products'),
     t('Currency'),
     t('Total'),
+    t('[currency] [total]'),
     t('.'),
     t(','),
     t('Created'),

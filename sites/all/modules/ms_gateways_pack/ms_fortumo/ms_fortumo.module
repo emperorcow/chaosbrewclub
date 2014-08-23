@@ -289,7 +289,7 @@ function ms_fortumo_remove_service($form, &$form_state) {
   $op = $form_state['values']['op'];
   foreach ($form_state['values'] as $key => $value) {
     if ($key != 'op' AND $value == $op) {
-      list($name, $service_id) = explode("-", $key);
+      list( , $service_id) = explode("-", $key);
       unset($linked_services[$service_id]);
       variable_del('ms_fortumo_sms_remove_service-' . $service_id);
       variable_del('ms_fortumo_sms_product_id_' . $service_id);
@@ -345,6 +345,8 @@ function ms_fortumo_block_save($delta, $edit) {
  * Implements hook_block_view().
  */
 function ms_fortumo_block_view($delta) {
+  $block = array();
+
   switch ($delta) {
     case 'ms_fortumo_credits_widget':
       global $user;
@@ -411,10 +413,11 @@ function ms_fortumo_widget_listener() {
   $secret = variable_get('ms_fortumo_widget_secret', '');
   ms_fortumo_verify_data($_GET, $secret);
 
-  $sender = $_GET['sender']; // Phone Number
+  //$sender = $_GET['sender']; // Phone Number
   $credits = $_GET['amount']; // Credits purchased
   $uid = $_GET['cuid']; // User ID
-  $txn_id = $_GET['payment_id']; // Transaction id
+  $account = user_load($uid);
+  //$txn_id = $_GET['payment_id']; // Transaction id
 
   // Additional parameters: operator, price, user_share, country
 
@@ -759,7 +762,10 @@ function ms_fortumo_sms_api_billing_listener() {
 /**
  * Generates a unique verification code
  *
- * @return
+ * @param int $length
+ *   The length of the code.
+ *
+ * @return string
  *   The unique 10 digit transaction id
  */
 function ms_fortumo_generate_code($length = 8) {
@@ -785,7 +791,6 @@ function ms_fortumo_process_payment($message, $order) {
   $payment->currency = $order->currency;
   $payment->recurring_id = '';
   $payment->data = array('message' => $message);
-  $payment->recurring_schedule = $order->recurring_schedule;
 
   // Update the address
   $payment->billing_address = array(
@@ -802,11 +807,6 @@ function ms_fortumo_process_payment($message, $order) {
       ms_core_add_history_item($order, 0, t('Payment of @amount submitted through Fortumo SMS.',
         array('@amount' => ms_core_format_money($payment->amount, $payment->currency))));
 
-      // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
-      break;
-
-    default:
       // Add the Payment to the Order
       ms_core_enter_payment($payment);
       break;

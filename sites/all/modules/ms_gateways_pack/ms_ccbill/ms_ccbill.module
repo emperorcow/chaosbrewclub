@@ -391,10 +391,9 @@ function ms_ccbill_cancel_confirm_submit($form, &$form_state) {
     // Generate a Unique Transaction ID
     $payment->transaction = drupal_get_token(serialize($order));
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $subscription_id;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
   }
   else {
     // Error
@@ -443,7 +442,7 @@ function ms_ccbill_checkout_page() {
   ms_core_set_order_status($order, 'pending');
 
   // Jump to CCBill
-  return ms_ccbill_jump($order);
+  ms_ccbill_jump($order);
 }
 
 /**
@@ -547,7 +546,16 @@ function ms_ccbill_success_callback_page() {
     if (!$order = ms_core_order_load_unique($post['ms_unique_key'])) {
       // Should never get this far
       ms_core_log_error('ms_ccbill', 'The order was unable to be loaded from the unique key: !key',
-        array('!key' => $unique_key));
+        array('!key' => $post['ms_unique_key']));
+      return 0;
+    }
+
+    $amount = isset($post['accountingAmount']) ? $post['accountingAmount'] : isset($post['initialPrice']) ? $post['initialPrice'] : 0;
+    // Check that the currency and amount match the order.
+    if (!ms_core_valid_payment($order, 'cart', $amount)) {
+      drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+      ms_core_log_error('ms_ccbill', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+        array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($post)));
       return 0;
     }
 
@@ -637,12 +645,13 @@ function ms_ccbill_approved_page($unique_key) {
 }
 
 /**
- * Checks if an order post has been received yet
+ * Checks if an order post has been received yet.
  *
  * @param $unique_key
- *   The unique key associated with the order
- * @return
- *   Returns a json encoded string
+ *   The unique key associated with the order.
+ *
+ * @return void
+ *   Returns a json encoded string.
  */
 function ms_ccbill_order_ajax_page($unique_key) {
   // Stop the caching
@@ -683,7 +692,6 @@ function ms_ccbill_process_payment($post, $order) {
   $payment->currency = $order->currency;
   $payment->recurring_id = (isset($post['subscription_id'])) ? $post['subscription_id'] : '';
   $payment->data = $post;
-  $payment->recurring_schedule = $order->recurring_schedule;
 
   // Update the address
   $payment->billing_address = array(
@@ -700,9 +708,8 @@ function ms_ccbill_process_payment($post, $order) {
 
   switch ($order->order_type) {
     case 'recurring':
-      $payment->amount = $payment->amount;
       $payment->type = 'rec_signup';
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       ms_core_add_history_item($order, 0, t('Payment of @amount submitted through CCBill.',
         array('@amount' => ms_core_format_money($payment->amount, $payment->currency))));
@@ -713,7 +720,7 @@ function ms_ccbill_process_payment($post, $order) {
         array('@amount' => ms_core_format_money($payment->amount, $payment->currency))));
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
       break;
   }
 }
@@ -786,7 +793,7 @@ function ms_ccbill_datalink_update($start, $end) {
             $payment->transaction = $transaction['txn_id'];
             $payment->recurring_id = $transaction['subscr_id'];
             $payment->data = $transaction;
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
           }
           else {
             ms_core_log_error('ms_ccbill', 'Unable to load order for data link REBILL. Details: !details',
@@ -803,7 +810,7 @@ function ms_ccbill_datalink_update($start, $end) {
             $payment->transaction = ms_core_generate_transaction_id(10);
             $payment->recurring_id = $transaction['subscr_id'];
             $payment->data = $transaction;
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
           }
           else {
             ms_core_log_error('ms_ccbill', 'Unable to load order for data link CHARGEBACK. Details: !details',
@@ -819,7 +826,7 @@ function ms_ccbill_datalink_update($start, $end) {
             $payment->transaction = ms_core_generate_transaction_id(10);
             $payment->recurring_id = $transaction['subscr_id'];
             $payment->data = $transaction;
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
           }
           else {
             ms_core_log_error('ms_ccbill', 'Unable to load order for data link REFUND. Details: !details',
@@ -835,7 +842,7 @@ function ms_ccbill_datalink_update($start, $end) {
             $payment->transaction = ms_core_generate_transaction_id(10);
             $payment->recurring_id = $transaction['subscr_id'];
             $payment->data = $transaction;
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
           }
           else {
             ms_core_log_error('ms_ccbill', 'Unable to load order for data link EXPIRE. Details: !details',
@@ -851,7 +858,7 @@ function ms_ccbill_datalink_update($start, $end) {
             $payment->transaction = ms_core_generate_transaction_id(10);
             $payment->recurring_id = $transaction['subscr_id'];
             $payment->data = $transaction;
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
           }
           else {
             ms_core_log_error('ms_ccbill', 'Unable to load order for data link CANCELLATION. Details: !details',

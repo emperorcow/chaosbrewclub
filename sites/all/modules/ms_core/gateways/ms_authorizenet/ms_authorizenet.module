@@ -116,7 +116,6 @@ function ms_authorizenet_ms_process_recurring_payment($recurring_schedule, $orde
   $cim_profile = ms_authorizenet_get_cim_profile($order->uid);
   $payment_profile = ms_authorizenet_get_payment_profile($order->uid);
   $shipping_profile = ms_authorizenet_get_shipping_profile($order->uid);
-  $email = db_query("SELECT mail FROM {users} WHERE uid = :uid", array(':uid' => $order->uid))->fetchField();
 
   if ($cim_profile AND $payment_profile AND $shipping_profile) {
     // Process the next payment using CIM
@@ -124,15 +123,14 @@ function ms_authorizenet_ms_process_recurring_payment($recurring_schedule, $orde
 
     if ($response['approved']) {
       ms_core_log('ms_authorizenet', 'Processing Recurring CIM Charge for Order #!num. Here are the details: @message',
-          array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
+        array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
 
       $payment = ms_core_new_payment($order->oid, 'ms_authorizenet_cim', 'rec_payment');
 
       $payment->transaction = $response['data']['auth_code'];
       $payment->amount = $recurring_schedule->main_amount;
       $payment->currency = 'USD';
-      $payment->data = $response['data'];
-      $payment->recurring_schedule = $order->recurring_schedule;
+      $payment->data = array('response' => $response['data']);
 
       // Update the address.
       $payment->billing_address = array(
@@ -162,18 +160,17 @@ function ms_authorizenet_ms_process_recurring_payment($recurring_schedule, $orde
 function ms_authorizenet_cron() {
   // Check for cards that are expiring soon, and send a notice to the user to change them
   if (variable_get('ms_authorizenet_expiration_reminder_body', '')) {
-    $frequency = (int) variable_get('ms_authorizenet_expiration_reminder_frequency', 3);
+    $frequency = (int)variable_get('ms_authorizenet_expiration_reminder_frequency', 3);
 
-    $month = (int) date('n');
-    $year = (int) date('Y');
-    $threshold = (int) variable_get('ms_authorizenet_expiration_reminder_months', 1);
+    $month = (int)date('n');
+    $year = (int)date('Y');
+    $threshold = (int)variable_get('ms_authorizenet_expiration_reminder_months', 1);
 
     // Set the month and year variables
     if ($month <= $threshold) {
       $month = (12 - $threshold) + $month;
       $year -= 1;
-    }
-    else {
+    } else {
       $month -= $threshold;
     }
 
@@ -186,15 +183,15 @@ function ms_authorizenet_cron() {
       p.expirationmonth <= :expirationmonth AND r.gateway = :gateway AND
       r.status = :active AND r.next_payment != :next_payment AND
       p.notified < :due_time",
-        array(
-      ':status' => 1,
-      ':expirationyear' => $year,
-      ':expirationmonth' => $month,
-      ':gateway' => 'ms_authorizenet_cim',
-      ':active' => 'active',
-      ':next_payment' => 0,
-      ':due_time' => $due_time,
-    ));
+      array(
+        ':status' => 1,
+        ':expirationyear' => $year,
+        ':expirationmonth' => $month,
+        ':gateway' => 'ms_authorizenet_cim',
+        ':active' => 'active',
+        ':next_payment' => 0,
+        ':due_time' => $due_time,
+      ));
 
     foreach ($result as $row) {
       $vars = array(
@@ -342,6 +339,7 @@ function ms_authorizenet_admin() {
     '#description' => t("Send the Expiring Soon email every X days."),
     '#default_value' => variable_get('ms_authorizenet_expiration_reminder_frequency', 3),
   );
+  // FIXME - Migrate this to the core payment profile system and make sure the cards are sending notices properly.
   $form['email']['ms_authorizenet_expiration_reminder_subject'] = array(
     '#type' => 'textfield',
     '#title' => t('Card Expiring Soon Email Subject'),
@@ -659,7 +657,6 @@ function ms_authorizenet_cim_profile_edit_form($form, &$form_state, $cim_id) {
       '#type' => 'select',
       '#title' => t('Country'),
       '#options' => ms_core_get_countries('iso'),
-      '#default_value' => 'United States',
       '#required' => TRUE,
       '#default_value' => ($shipping_profile) ? $shipping_profile->shiptocountry : '',
     );
@@ -679,10 +676,64 @@ function ms_authorizenet_cim_profile_edit_form($form, &$form_state, $cim_id) {
       '#value' => t('Save'),
     );
     return $form;
-  }
-  else {
+  } else {
     drupal_not_found();
   }
+}
+
+/**
+ * Form validation handler for ms_core_payment_profile_edit_form().
+ *
+ * Saves a payment profile card for a user.
+ */
+function ms_authorizenet_cim_payment_profile_edit_form_validate($form, &$form_state) {
+  $v = $form_state['values'];
+
+  $billing_address = array(
+    'first_name' => trim($v['first_name']),
+    'last_name' => trim($v['last_name']),
+    'address' => trim($v['address']),
+    'city' => trim($v['city']),
+    'state' => trim($v['state']),
+    'zip' => trim($v['zip']),
+    'country' => trim($v['country']),
+    'phone' => trim($v['phone']),
+    'fax' => '',
+  );
+  $shipping_address = $billing_address;
+
+  // Update or Create the CIM Profile first
+  global $user;
+  $account = $user;
+  $cim_profile = ms_authorizenet_create_cim_profile($v['email'], $account->uid);
+
+  // If there is no Payment Profile, then create a new one, otherwise update the existing one
+  $payment_result = ms_authorizenet_create_payment_profile($account->uid, $cim_profile->profile_id, $billing_address, trim($v['cc_num']), trim($v['exp_month']), trim($v['exp_year']), 0);
+  $shipping_result = ms_authorizenet_create_shipping_profile($account->uid, $cim_profile->profile_id, $shipping_address, 0);
+
+  if ($payment_result['success']) {
+    $payment_profile = $payment_result['payment_profile'];
+    // Set a message
+    drupal_set_message(t('Your Billing Information has been successfully created.'));
+    // Send a confirmation email
+    if (variable_get('ms_authorizenet_card_update_confirm_body', '')) {
+      $vars = array(
+        'payment_profile' => $payment_profile,
+      );
+      drupal_mail('ms_authorizenet', 'card_update_confirm', $account->mail, user_preferred_language($account), $vars);
+    }
+  } else {
+    form_set_error('cc_num', t('Error: There was an error creating the payment profile. Please check your information and try again. Details: @details', array('@details' => $payment_result['error'])));
+  }
+  if ($shipping_result['success']) {
+    // Set a message
+    drupal_set_message(t('Your Shipping Address has been successfully created.'));
+  } else {
+    form_set_error('cc_num', t('Error: There was an error creating the shipping profile. Please check your information and try again. Details: @details', array('@details' => $shipping_result['error'])));
+  }
+
+  // Redirect to the correct page
+  $form_state['redirect'] = 'user/' . $v['uid'] . '/billing-info';
 }
 
 /**
@@ -740,8 +791,7 @@ function ms_authorizenet_billing_info_form_validate($form, &$form_state) {
     global $user;
     $account = $user;
     $cim_profile = ms_authorizenet_create_cim_profile($v['billing_email'], $account->uid);
-  }
-  else { // If it exists, update it
+  } else { // If it exists, update it
     $account = user_load($cim_profile->uid);
     $cim_profile = ms_authorizenet_create_cim_profile($v['billing_email'], $account->uid, NULL, $cim_profile->profile_id);
   }
@@ -764,15 +814,13 @@ function ms_authorizenet_billing_info_form_validate($form, &$form_state) {
       );
       drupal_mail('ms_authorizenet', 'card_update_confirm', $account->mail, user_preferred_language($account), $vars);
     }
-  }
-  else {
+  } else {
     form_set_error('cc_number', t('Error: There was an error updating the payment profile. Please check your information and try again. Details: @details', array('@details' => $payment_result['error'])));
   }
   if ($shipping_result['success']) {
     // Set a message
     drupal_set_message(t('Your Shipping Address has been successfully updated.'));
-  }
-  else {
+  } else {
     form_set_error('cc_number', t('Error: There was an error updating the shipping profile. Please check your information and try again. Details: @details', array('@details' => $shipping_result['error'])));
   }
 }
@@ -880,10 +928,9 @@ function ms_authorizenet_check_cim_profile_valid($id) {
   // Get the profile ID returned from the request
   if ($cim->isSuccessful()) {
     return TRUE;
-  }
-  else {
+  } else {
     ms_core_log_error('ms_authorizenet', 'There was an error loading the CIM Profile. Error: !error Details: !details',
-            array('!error' => $cim->getResponseSummary(), '!details' => ms_core_print_r($cim)));
+      array('!error' => $cim->getResponseSummary(), '!details' => ms_core_print_r($cim)));
 
     // Remove the profile from the database tables if it is not valid
     ms_core_log('ms_authorizenet', 'Removing the invalid CIM Profile record.');
@@ -897,7 +944,6 @@ function ms_authorizenet_check_cim_profile_valid($id) {
  * Get the payment profile for a cim profile
  */
 function ms_authorizenet_get_payment_profile_by_cim_id($id) {
-  $payment_profiles = array();
   $result = db_query("SELECT * FROM {ms_authorizenet_payment_profiles} WHERE profile_id = :id ORDER BY id DESC",
     array(':id' => $id));
 
@@ -912,7 +958,6 @@ function ms_authorizenet_get_payment_profile_by_cim_id($id) {
  * Get the shipping profile for a cim profile
  */
 function ms_authorizenet_get_shipping_profile_by_cim_id($id) {
-  $payment_profiles = array();
   $result = db_query("SELECT * FROM {ms_authorizenet_shipping_profiles} WHERE profile_id = :id ORDER BY id DESC",
     array(':id' => $id));
 
@@ -962,12 +1007,11 @@ function ms_authorizenet_create_cim_profile($email, $uid, $description = NULL, $
   }
 
   // Include AuthnetCIM class
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetCIM.class.php';
+  require_once 'includes/AuthnetCIM.class.php';
 
   if ($profile = ms_authorizenet_get_cim_profile_by_id($id) AND ms_authorizenet_check_cim_profile_valid($profile->profile_id)) {
     // Do nothing
-  }
-  else {
+  } else {
     $profile = NULL;
     $profile = new stdClass();
     $profile->email = $email;
@@ -991,26 +1035,23 @@ function ms_authorizenet_create_cim_profile($email, $uid, $description = NULL, $
     if ($cim->isSuccessful()) {
       drupal_write_record('ms_authorizenet_cim_profiles', $profile, 'id');
       ms_core_log('ms_authorizenet', 'Successfully Updated a CIM Profile: !profile',
-          array('!profile' => ms_core_print_r($profile)));
+        array('!profile' => ms_core_print_r($profile)));
       return $profile;
-    }
-    else {
+    } else {
       ms_core_log_error('ms_authorizenet', 'There was an error updating the CIM Profile. Error: !error Details: !details',
-          array('!error' => $cim->getResponseSummary(), '!details' => ms_core_print_r($cim)));
+        array('!error' => $cim->getResponseSummary(), '!details' => ms_core_print_r($cim)));
       return FALSE;
     }
-  }
-  else {
+  } else {
     $cim->createCustomerProfile();
     // Get the profile ID returned from the request
     if ($cim->isSuccessful()) {
       $profile->profile_id = $cim->getProfileID();
       drupal_write_record('ms_authorizenet_cim_profiles', $profile);
       ms_core_log('ms_authorizenet', 'Successfully Created a CIM Profile: !profile',
-          array('!profile' => ms_core_print_r($profile)));
+        array('!profile' => ms_core_print_r($profile)));
       return $profile;
-    }
-    else {
+    } else {
       ms_core_log_error('ms_authorizenet', 'There was an error creating the CIM Profile. Details: !details',
         array('!details' => ms_core_print_r($cim)));
       return FALSE;
@@ -1023,21 +1064,21 @@ function ms_authorizenet_create_cim_profile($email, $uid, $description = NULL, $
  */
 function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $card_num, $month, $year, $payment_id = 0, $validate = TRUE) {
   // Include AuthnetCIM class
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetCIM.class.php';
+  require_once 'includes/AuthnetCIM.class.php';
 
   if (!$payment_profile = ms_authorizenet_get_payment_profile_by_id($payment_id)) {
     $payment_profile = new stdClass();
-  }
-  else {
+  } else {
     // If the information is the same, don't update it
     if ($payment_profile->billtofirstname == $address['first_name'] AND
-        $payment_profile->billtofirstname == $address['last_name'] AND
-        $payment_profile->billtoaddress == $address['address'] AND
-        $payment_profile->billtocity == $address['city'] AND
-        $payment_profile->billtophonenumber == $address['phone'] AND
-        $payment_profile->cardnumber == $card_num AND
-        $payment_profile->expirationmonth == $month AND
-        $payment_profile->expirationyear == $year) {
+      $payment_profile->billtofirstname == $address['last_name'] AND
+      $payment_profile->billtoaddress == $address['address'] AND
+      $payment_profile->billtocity == $address['city'] AND
+      $payment_profile->billtophonenumber == $address['phone'] AND
+      $payment_profile->cardnumber == $card_num AND
+      $payment_profile->expirationmonth == $month AND
+      $payment_profile->expirationyear == $year
+    ) {
       return array('success' => TRUE, 'payment_profile' => $payment_profile);
     }
   }
@@ -1104,8 +1145,7 @@ function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $ca
       drupal_write_record('ms_authorizenet_payment_profiles', $payment_profile, 'id');
 
       return array('success' => TRUE, 'payment_profile' => $payment_profile);
-    }
-    else {
+    } else {
       // If it failed, try to resend the request with ValidationMode set to none
       $cim->setParameter('validationMode', 'none');
 
@@ -1139,8 +1179,7 @@ function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $ca
           drupal_write_record('ms_authorizenet_payment_profiles', $payment_profile, 'id');
 
           return array('success' => TRUE, 'payment_profile' => $payment_profile);
-        }
-        else {
+        } else {
           ms_core_log_error('ms_authorizenet', 'Backup method for updating CIM Payment Profile failed.', array());
         }
       }
@@ -1149,8 +1188,7 @@ function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $ca
         array('!cim' => $cim, '!profile' => ms_core_print_r($payment_profile)));
       return array('success' => FALSE, 'error' => $cim->getResponse());
     }
-  }
-  else {
+  } else {
     $cim->createCustomerPaymentProfile();
     // Get the payment profile ID returned from the request
     if ($cim->isSuccessful()) {
@@ -1158,8 +1196,7 @@ function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $ca
       $payment_profile->payment_id = $cim->getPaymentProfileId();
       drupal_write_record('ms_authorizenet_payment_profiles', $payment_profile);
       return array('success' => TRUE, 'payment_profile' => $payment_profile);
-    }
-    else {
+    } else {
       // If it failed, try to resend the request with ValidationMode set to none
       $cim->setParameter('validationMode', 'none');
 
@@ -1194,12 +1231,10 @@ function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $ca
             drupal_write_record('ms_authorizenet_payment_profiles', $payment_profile);
 
             return array('success' => TRUE, 'payment_profile' => $payment_profile);
-          }
-          else {
+          } else {
             ms_core_log_error('ms_authorizenet', 'Backup method for creating CIM Payment Profile failed.');
           }
-        }
-        else {
+        } else {
           return array('success' => TRUE, 'payment_profile' => $payment_profile);
         }
       }
@@ -1215,19 +1250,18 @@ function ms_authorizenet_create_payment_profile($uid, $profile_id, $address, $ca
  * Create a CIM Shipping Profile
  */
 function ms_authorizenet_create_shipping_profile($uid, $profile_id, $address, $shipping_id = 0) {
-  // Include AuthnetCIM class
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetCIM.class.php';
+  require_once 'includes/AuthnetCIM.class.php';
 
   if (!$shipping_profile = ms_authorizenet_get_shipping_profile_by_id($shipping_id)) {
     $shipping_profile = new stdClass();
-  }
-  else {
+  } else {
     // If the address is the same, don't update it
     if ($shipping_profile->shiptofirstname == $address['first_name'] AND
-        $shipping_profile->shiptolastname == $address['last_name'] AND
-        $shipping_profile->shiptoaddress == $address['address'] AND
-        $shipping_profile->shiptocity == $address['city'] AND
-        $shipping_profile->shiptophonenumber == $address['phone']) {
+      $shipping_profile->shiptolastname == $address['last_name'] AND
+      $shipping_profile->shiptoaddress == $address['address'] AND
+      $shipping_profile->shiptocity == $address['city'] AND
+      $shipping_profile->shiptophonenumber == $address['phone']
+    ) {
       return array('success' => TRUE, 'shipping_profile' => $shipping_profile);
     }
   }
@@ -1277,8 +1311,7 @@ function ms_authorizenet_create_shipping_profile($uid, $profile_id, $address, $s
       $shipping_profile->shipping_id = $cim->getCustomerAddressId();
       drupal_write_record('ms_authorizenet_shipping_profiles', $shipping_profile, 'id');
       return array('success' => TRUE, 'shipping_profile' => $shipping_profile);
-    }
-    else {
+    } else {
       // Attempt to create a new profile
       ms_core_log_error('ms_authorizenet', 'There was an error updating the CIM Shipping Profile.
         Attempting to create a new one. The error was: !error Profile: !profile',
@@ -1290,15 +1323,13 @@ function ms_authorizenet_create_shipping_profile($uid, $profile_id, $address, $s
         $shipping_profile->shipping_id = $cim->getCustomerAddressId();
         drupal_write_record('ms_authorizenet_shipping_profiles', $shipping_profile);
         return array('success' => TRUE, 'shipping_profile' => $shipping_profile);
-      }
-      else {
+      } else {
         ms_core_log_error('ms_authorizenet', 'There was an error creating the CIM Shipping Profile: !error Profile: !profile',
           array('!error' => $cim->getResponseSummary(), '!profile' => ms_core_print_r($cim)));
         return array('success' => FALSE, 'error' => $cim->getResponse());
       }
     }
-  }
-  else {
+  } else {
     $cim->createCustomerShippingAddress();
 
     if ($cim->isSuccessful()) {
@@ -1307,8 +1338,7 @@ function ms_authorizenet_create_shipping_profile($uid, $profile_id, $address, $s
 
       drupal_write_record('ms_authorizenet_shipping_profiles', $shipping_profile);
       return array('success' => TRUE, 'shipping_profile' => $shipping_profile);
-    }
-    else {
+    } else {
       ms_core_log_error('ms_authorizenet', 'There was an error creating the CIM Shipping Profile: !error Profile: !profile',
         array('!error' => $cim->getResponseSummary(), '!profile' => ms_core_print_r($shipping_profile)));
       return array('success' => FALSE, 'error' => $cim->getResponse());
@@ -1575,7 +1605,6 @@ function ms_authorizenet_arb_billing_page_form($form, &$form_state, $order) {
     '#type' => 'select',
     '#title' => t('Country'),
     '#options' => ms_core_get_countries('iso'),
-    '#default_value' => 'United States',
     '#required' => TRUE,
     '#default_value' => '',
   );
@@ -1599,14 +1628,11 @@ function ms_authorizenet_arb_billing_page_form_validate($form, &$form_state) {
 
   $order = ms_core_order_load($v['oid']);
 
-  $account = user_load($order->uid);
-
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetARB.class.php';
+  require_once 'includes/AuthnetARB.class.php';
 
   if (variable_get('ms_authorizenet_arb_mode', 'disabled') == 'developer') {
     $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''), AuthnetARB::USE_DEVELOPMENT_SERVER);
-  }
-  else {
+  } else {
     $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''));
   }
 
@@ -1641,8 +1667,7 @@ function ms_authorizenet_arb_billing_page_form_validate($form, &$form_state) {
 
   if ($arb->isSuccessful()) {
     drupal_set_message(t('Successfully changed your billing information.'));
-  }
-  else {
+  } else {
     // Log the error
     ms_core_log_error('ms_authorizenet', 'There was a problem updating the order: @error',
       array('@error' => $arb->getResponse()));
@@ -1664,12 +1689,11 @@ function ms_authorizenet_cancel_arb_page($oid) {
   // Enter a rec_cancel payment
   $order = ms_core_order_load($oid);
 
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetARB.class.php';
+  require_once 'includes/AuthnetARB.class.php';
 
   if (variable_get('ms_authorizenet_arb_mode', 'disabled') == 'developer') {
     $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''), AuthnetARB::USE_DEVELOPMENT_SERVER);
-  }
-  else {
+  } else {
     $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''));
   }
 
@@ -1688,24 +1712,21 @@ function ms_authorizenet_cancel_arb_page($oid) {
       // Generate a Unique Transaction ID
       $payment->transaction = drupal_get_token(serialize($order));
       $payment->currency = 'USD';
-      $payment->recurring_schedule = $order->recurring_schedule;
       $payment->recurring_id = $arb->getSubscriberID();
       $payment->billing_address = $order->billing_address;
       $payment->shipping_address = $order->shipping_address;
 
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       drupal_goto();
-    }
-    else {
+    } else {
       // Log the error
       ms_core_log_error('ms_authorizenet', 'There was a problem processing the payment: @error (ARB)',
         array('@error' => $arb->getResponse()));
 
       drupal_goto();
     }
-  }
-  else {
+  } else {
     return t('Sorry, there was an error cancelling your payments. Please contact a site administrator.');
   }
 }
@@ -1729,12 +1750,11 @@ function ms_authorizenet_modify_arb_page($oid, $id) {
 
   $order = ms_core_add_data($order, $data);
 
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetARB.class.php';
+  require_once 'includes/AuthnetARB.class.php';
 
   if (variable_get('ms_authorizenet_arb_mode', 'disabled') == 'developer') {
     $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''), AuthnetARB::USE_DEVELOPMENT_SERVER);
-  }
-  else {
+  } else {
     $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''));
   }
 
@@ -1752,8 +1772,7 @@ function ms_authorizenet_modify_arb_page($oid, $id) {
   if ($unit == 'W') {
     $length *= 7;
     $unit = 'D';
-  }
-  elseif ($unit == 'Y') {
+  } elseif ($unit == 'Y') {
     $length *= 365;
     $unit = 'D';
   }
@@ -1782,15 +1801,13 @@ function ms_authorizenet_modify_arb_page($oid, $id) {
     $payment->recurring_id = $arb->getSubscriberID();
     $payment->currency = 'USD';
     $payment->data = array('new_product' => $new_product);
-    $payment->recurring_schedule = $new_product->recurring_schedule;
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     drupal_goto();
-  }
-  else {
+  } else {
     // Log the error
     ms_core_log_error('ms_authorizenet', 'There was a problem processing the payment: @error (ARB)',
       array('@error' => $arb->getResponse()));
@@ -1822,10 +1839,9 @@ function ms_authorizenet_cim_ms_core_modification_charge($amount, $order) {
 
   if ($response['approved']) {
     ms_core_log('ms_authorizenet', 'Processing Recurring CIM Charge for Order #!num. Here are the details: @message',
-      array('!num' => $order->oid, '@message' => ms_core_print_r($new_product->recurring_schedule)));
+      array('!num' => $order->oid, '@message' => ms_core_print_r($response)));
     return TRUE;
-  }
-  else {
+  } else {
     // Log the error
     ms_core_log_error('ms_authorizenet', 'Error Processing CIM Charge: @message',
       array('@message' => $response['message']));
@@ -1848,7 +1864,6 @@ function ms_authorizenet_checkout() {
   $GLOBALS['conf']['cache'] = FALSE;
 
   $mode = variable_get('ms_authorizenet_aim_txn_mode', 'live_test');
-  $arb_mode = variable_get('ms_authorizenet_arb_mode', 'disabled');
   if ($mode == 'live_test' OR $mode == 'developer_test') {
     drupal_set_message(t('Using Test Mode. Cards will not be charged.'));
   }
@@ -1864,8 +1879,7 @@ function ms_authorizenet_checkout() {
   $use_new = FALSE;
   if (arg(3) == 'new') {
     $use_new = TRUE;
-  }
-  elseif ($order->status != 'checkout') {
+  } elseif ($order->status != 'checkout') {
     // The order is not in checkout and shouldn't be here
     return t('This order has already been through Checkout.');
   }
@@ -1874,8 +1888,7 @@ function ms_authorizenet_checkout() {
   if (!$use_new AND $user->uid AND $profile = ms_authorizenet_get_cim_profile($user->uid) AND $payment_profile = ms_authorizenet_get_payment_profile($user->uid) AND $shipping_profile = ms_authorizenet_get_shipping_profile($user->uid)) {
     // Show the form to use the saved profile
     $build['content'] = drupal_get_form('ms_authorizenet_cim_checkout_form', $user, $order);
-  }
-  else {
+  } else {
     // Get the Payment Form
     $build['content'] = drupal_get_form('ms_authorizenet_checkout_form', $order);
   }
@@ -1971,8 +1984,7 @@ function ms_authorizenet_cim_checkout_form_validate($form, &$form_state) {
         // Generate a Unique Transaction ID
         $payment->transaction = drupal_get_token(serialize($order));
         $payment->currency = 'USD';
-        $payment->data = $payment_profile;
-        $payment->recurring_schedule = $order->recurring_schedule;
+        $payment->data = array('payment_profile' => $payment_profile);
 
         // Update the address
         $payment->billing_address = array(
@@ -1991,13 +2003,12 @@ function ms_authorizenet_cim_checkout_form_validate($form, &$form_state) {
         $payment->recurring_id = $order->oid;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Add the payment to the order
         $form_state['values']['ms_oid'] = $order->oid;
         $form_state['values']['ms_order_charged'] = TRUE;
-      }
-      else {
+      } else {
         // Check if there is a trial
         $amount = ($order->recurring_schedule['trial_length']) ? $order->recurring_schedule['trial_amount'] : $order->recurring_schedule['main_amount'];
 
@@ -2013,8 +2024,7 @@ function ms_authorizenet_cim_checkout_form_validate($form, &$form_state) {
           $payment = ms_core_new_payment($order->oid, 'ms_authorizenet_cim', 'rec_signup');
           $payment->transaction = $response['data']['auth_code'];
           $payment->currency = 'USD';
-          $payment->data = $response['data'];
-          $payment->recurring_schedule = $order->recurring_schedule;
+          $payment->data = array('response' => $response['data']);
 
           // Update the address
           $payment->billing_address = array(
@@ -2034,9 +2044,8 @@ function ms_authorizenet_cim_checkout_form_validate($form, &$form_state) {
 
           // Add the Payment to the Order
           $payment->amount = $amount;
-          ms_core_enter_payment($payment, FALSE);
-        }
-        else {
+          ms_core_enter_payment($payment);
+        } else {
           // Log the error
           ms_core_log_error('ms_authorizenet', 'Error Processing CIM Charge: @message', array('@message' => $response['message']));
         }
@@ -2057,8 +2066,7 @@ function ms_authorizenet_cim_checkout_form_validate($form, &$form_state) {
         $payment->transaction = $response['data']['auth_code'];
         $payment->amount = $order->amount;
         $payment->currency = 'USD';
-        $payment->data = $payment_profile;
-        $payment->recurring_schedule = $order->recurring_schedule;
+        $payment->data = array('payment_profile' => $payment_profile);
 
         // Update the address
         $payment->billing_address = array(
@@ -2076,9 +2084,8 @@ function ms_authorizenet_cim_checkout_form_validate($form, &$form_state) {
         $payment->last_name = $payment_profile->billtolastname;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
-      }
-      else {
+        ms_core_enter_payment($payment);
+      } else {
         form_set_error('payment_id', t('Error: @message', array('@message' => $response['message'])));
       }
       break;
@@ -2094,8 +2101,7 @@ function ms_authorizenet_cim_checkout_form_submit($form, &$form_state) {
   // If the Order was charged, go to thankyou page
   if ($v['ms_order_charged']) {
     $form_state['redirect'] = 'ms/thankyou';
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -2164,7 +2170,7 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
         // Check if there is a free trial
         if ($order->recurring_schedule['trial_length'] AND $order->recurring_schedule['trial_amount'] == 0) {
           // Use AIM to AUTH_ONLY 0.00
-          $auth_amount = (float) variable_get('ms_authorizenet_auth_amount', 0.00);
+          $auth_amount = (float)variable_get('ms_authorizenet_auth_amount', 0.00);
           $response = ms_authorizenet_charge($order, $auth_amount, $v, 'AUTH_ONLY');
 
           if ($response['approved'] == TRUE) {
@@ -2173,7 +2179,6 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
             $payment->transaction = $response['data']['txn_id'];
             $payment->currency = 'USD';
             $payment->data = array('response' => $response);
-            $payment->recurring_schedule = $order->recurring_schedule;
 
             // Update the address
             $payment->billing_address = array(
@@ -2193,7 +2198,7 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
             $payment->recurring_id = $order->oid;
 
             // Add the Payment to the Order
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
 
             // Save the CIM profiles
             if (variable_get('ms_authorizenet_cim_profile', FALSE)) {
@@ -2204,20 +2209,16 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
                 // Add the payment to the order
                 $form_state['values']['ms_oid'] = $order->oid;
                 $form_state['values']['ms_order_charged'] = TRUE;
-              }
-              else {
+              } else {
                 form_set_error('ccnumber', t('Error') . ': ' . $cim_result['error']);
               }
-            }
-            else {
+            } else {
               form_set_error('ccnumber', t('Error: There was a configuration error in the settings.'));
             }
-          }
-          else { // The Credit Card was not approved, set an error on the form
+          } else { // The Credit Card was not approved, set an error on the form
             form_set_error('ccnumber', t('Error') . ': ' . $response['message']);
           }
-        }
-        else {
+        } else {
           // Check if there is a trial
           $amount = ($order->recurring_schedule['trial_length']) ? $order->recurring_schedule['trial_amount'] : $order->recurring_schedule['main_amount'];
 
@@ -2230,8 +2231,7 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
 
             $payment->transaction = $response['data']['txn_id'];
             $payment->currency = 'USD';
-            $payment->data = $response['data'];
-            $payment->recurring_schedule = $order->recurring_schedule;
+            $payment->data = array('response' => $response['data']);
 
             // Update the address
             $payment->billing_address = array(
@@ -2252,7 +2252,7 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
             $payment->last_name = trim($v['cc_last_name']);
 
             // Add the Payment to the Order
-            ms_core_enter_payment($payment, FALSE);
+            ms_core_enter_payment($payment);
 
             // Save the CIM profiles
             if (variable_get('ms_authorizenet_cim_profile', FALSE)) {
@@ -2263,35 +2263,30 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
                 // Add the rec_payment payment to the order
                 $payment->type = 'rec_payment';
                 $payment->amount = $amount;
-                ms_core_enter_payment($payment, FALSE);
+                ms_core_enter_payment($payment);
 
                 // Add the payment to the order
                 $form_state['values']['ms_oid'] = $order->oid;
                 $form_state['values']['ms_order_charged'] = TRUE;
-              }
-              else {
+              } else {
                 form_set_error('ccnumber', t('Error') . ': ' . $cim_result['error']);
               }
-            }
-            else {
+            } else {
               form_set_error('ccnumber', t('Error: There was a configuration error in the settings.'));
             }
-          }
-          else { // The Credit Card was not approved, set an error on the form
+          } else { // The Credit Card was not approved, set an error on the form
             form_set_error('ccnumber', t('Error') . ': ' . $response['message']);
             ms_core_log_error('ms_authorizenet', ms_core_print_r($response));
           }
         }
-      }
-      else { // Otherwise Use ARB
+      } else { // Otherwise Use ARB
         $response = ms_authorizenet_arb_charge($order, $v, $order->recurring_schedule);
 
         if ($response['approved'] == TRUE) {
           // The credit card was approved
           $form_state['values']['ms_oid'] = $order->oid;
           $form_state['values']['ms_order_charged'] = TRUE;
-        }
-        else { // The Credit Card was not approved, set an error on the form
+        } else { // The Credit Card was not approved, set an error on the form
           form_set_error('ccnumber', t('Error') . ': ' . $response['message']);
         }
       }
@@ -2309,8 +2304,7 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
         $payment->transaction = $response['data']['txn_id'];
         $payment->amount = $order->amount;
         $payment->currency = 'USD';
-        $payment->data = $response['data'];
-        $payment->recurring_schedule = array();
+        $payment->data = array('response' => $response['data']);
 
         // Update the address
         $payment->billing_address = array(
@@ -2343,8 +2337,7 @@ function ms_authorizenet_checkout_form_validate($form, &$form_state) {
             drupal_set_message(t('Error: @error', array('@error' => $cim_result['error'])));
           }
         }
-      }
-      else { // The Credit Card was not approved, set an error on the form
+      } else { // The Credit Card was not approved, set an error on the form
         form_set_error('ccnumber', t('Error: @error', array('@error' => $response['message'])));
       }
       break;
@@ -2359,8 +2352,7 @@ function ms_authorizenet_checkout_form_submit($form, &$form_state) {
   // If the Order was charged, complete it
   if ($v['ms_order_charged']) {
     $form_state['redirect'] = 'ms/thankyou';
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -2370,10 +2362,10 @@ function ms_authorizenet_checkout_form_submit($form, &$form_state) {
  */
 function ms_authorizenet_charge($order, $amount, $data, $mode = 'AUTH_CAPTURE') {
   $return = array();
-  global $user;
+
   $isTest = (variable_get('ms_authorizenet_aim_txn_mode', 'developer_test') == 'developer_test') ? TRUE : FALSE;
 
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/includes/authnet.class.php';
+  require_once 'includes/authnet.class.php';
 
   // Instantiate our class
   $aim = new Authnet(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''), $isTest);
@@ -2418,8 +2410,7 @@ function ms_authorizenet_charge($order, $amount, $data, $mode = 'AUTH_CAPTURE') 
   if ($aim->isApproved()) {
     $return['approved'] = TRUE;
     $return['data']['txn_id'] = $aim->getTransactionID();
-  }
-  else {
+  } else {
     // The payment failed
     ms_core_log_error('ms_authorizenet', 'Authorize.Net AIM: Payment for Order @oid failed.<br />@text',
       array('@oid' => $order->oid, '@text' => $aim->getResponseText()));
@@ -2439,7 +2430,7 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
 
   $isTest = (variable_get('ms_authorizenet_arb_mode', 'disabled') == 'developer') ? TRUE : FALSE;
 
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/authnet.class.php';
+  require_once 'includes/authnet.class.php';
 
   // Instantiate our class
   $aim = new Authnet(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''), $isTest);
@@ -2480,8 +2471,7 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
     // Process the initial payment
     $aim->process();
     $approved = $aim->isApproved();
-  }
-  else {
+  } else {
     $approved = TRUE;
   }
 
@@ -2498,8 +2488,7 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
     if ($unit == 'W') {
       $length *= 7;
       $unit = 'D';
-    }
-    elseif ($unit == 'Y') {
+    } elseif ($unit == 'Y') {
       $length *= 365;
       $unit = 'D';
     }
@@ -2522,9 +2511,6 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
         break;
     }
 
-    $trial_occurrences = $recurring_schedule['has_trial'] ? 1 : 0;
-    $trial_amount = $recurring_schedule['has_trial'] ? $recurring_schedule['trial_amount'] : 0;
-
     // Make sure we have valid values for Authorize.Net.
     if ($length <= 0 || $unit == 'days' && $length > 365 || $unit == 'months' && $length > 12) {
       ms_core_log_error('ms_authorizenet', 'Product has invalid interval settings for Authorize.Net - @length @unit', array('@length' => $length, '@unit' => $unit));
@@ -2533,12 +2519,11 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
       return $return;
     }
 
-    require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetARB.class.php';
+    require_once 'includes/AuthnetARB.class.php';
 
     if ($isTest) {
       $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''), AuthnetARB::USE_DEVELOPMENT_SERVER);
-    }
-    else {
+    } else {
       $arb = new AuthnetARB(variable_get('ms_authorizenet_api_login_id', ''), variable_get('ms_authorizenet_api_transaction_key', ''));
     }
 
@@ -2578,8 +2563,7 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
 
     if (isset($recurring_schedule['has_trial']) AND $recurring_schedule['has_trial']) {
       $arb->setParameter('startDate', date("Y-m-d", strtotime("+ " . $trial_length . ' ' . $trial_unit)));
-    }
-    else {
+    } else {
       $arb->setParameter('startDate', date("Y-m-d", strtotime("+ " . $length . ' ' . $unit)));
     }
 
@@ -2604,7 +2588,6 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
       $payment->transaction = $arb->getSubscriberID();
       $payment->currency = 'USD';
       $payment->data = array('subscriptionId' => $arb->getSubscriberID());
-      $payment->recurring_schedule = $order->recurring_schedule;
       $payment->recurring_id = $arb->getSubscriberID();
 
       // Update the address
@@ -2625,11 +2608,10 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
 
       // Add the Payment to the Order
       $payment->amount = $first_charge;
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       $return['approved'] = TRUE;
-    }
-    else {
+    } else {
       // Setting up an ARB failed, but the AIM might have succeeded
       // This could happen if the card expires before the first payment,
       // so the aim charge went through but the ARB setup failed. We need to check
@@ -2645,7 +2627,6 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
         $payment = ms_core_new_payment($order->oid, 'ms_authorizenet', 'rec_signup');
         $payment->transaction = $aim->getTransactionID();
         $payment->currency = 'USD';
-        $payment->recurring_schedule = $order->recurring_schedule;
         $payment->recurring_id = ms_core_generate_recurring_id();
 
         // Update the address
@@ -2665,20 +2646,19 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
         $payment->last_name = trim($data['cc_last_name']);
         // Add the Payment to the Order
         $payment->amount = $first_charge;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Add a rec_cancel payment because the ARB failed and this is not going to recur
         $payment->type = 'rec_cancel';
         $payment->amount = 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         ms_core_log_error('ms_authorizenet', 'Authorize.Net: Failed to setup ARB
           for Order @oid. Since the AIM succeeded, marking order as successful but
           canceled.<br />@error', array('@oid' => $order->oid, '@error' => $arb->getResponse()));
 
         $return['approved'] = TRUE;
-      }
-      else {
+      } else {
         // The subscription was not created!
         ms_core_log_error('ms_authorizenet', 'Authorize.Net: Recurring fee for Order @oid failed.<br />@error', array('@oid' => $order->oid, '@error' => $arb->getResponse()));
         // Fail the charge with the reason text in the decline message.
@@ -2686,8 +2666,7 @@ function ms_authorizenet_arb_charge($order, $data, $recurring_schedule) {
         $return['message'] = t('There was a problem setting up the recurring billing: @error', array('@error' => $arb->getResponse()));
       }
     }
-  }
-  else {
+  } else {
     // The payment failed
     ms_core_log_error('ms_authorizenet', 'Authorize.Net: Payment for Order @oid failed.<br />@error', array('@oid' => $order->oid, '@error' => $aim->getResponseText()));
     // Fail the charge with the reason text in the decline message.
@@ -2705,7 +2684,7 @@ function ms_authorizenet_cim_charge($order, $amount, $profile, $payment_profile,
   $return = array();
 
   // Include AuthnetCIM class
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_authorizenet') . '/' . 'includes/AuthnetCIM.class.php';
+  require_once 'includes/AuthnetCIM.class.php';
 
   // Create AuthnetCIM object
   $isTest = (variable_get('ms_authorizenet_cim_mode', 'disabled') == 'developer') ? TRUE : FALSE;
@@ -2726,8 +2705,7 @@ function ms_authorizenet_cim_charge($order, $amount, $profile, $payment_profile,
 
     $return['data']['auth_code'] = $cim->getAuthCode();
     $return['approved'] = TRUE;
-  }
-  else {
+  } else {
     ms_core_log_error('ms_authorizenet', 'There was an error charging a CIM Payment Profile: !error Profile: !profile',
       array('!error' => $cim->getResponseSummary(), '!profile' => ms_core_print_r($payment_profile)));
     $return['approved'] = FALSE;
@@ -2748,10 +2726,10 @@ function ms_authorizenet_silent_post() {
   // Insert a payment for recurring payments
   if (isset($_POST['x_subscription_id']) AND $order = ms_core_order_load_by_rec_id($_POST['x_subscription_id'])) {
     // Get the response code. 1 is success, 2 is decline, 3 is error
-    $response_code = (int) $_POST['x_response_code'];
+    $response_code = (int)$_POST['x_response_code'];
 
     // Get the reason code. 8 is expired card.
-    $reason_code = (int) $_POST['x_response_reason_code'];
+    $reason_code = (int)$_POST['x_response_reason_code'];
 
     if ($response_code == 1) {
       // Approved!
@@ -2763,14 +2741,13 @@ function ms_authorizenet_silent_post() {
       // $customer_id        = $_POST['x_cust_id'];
 
       ms_core_log('ms_authorizenet', 'Processing ARB Recurring Payment Charge for Order #!num. Here are the vars: !message',
-          array('!num' => $order->oid, '!message' => ms_core_print_r($_POST)));
+        array('!num' => $order->oid, '!message' => ms_core_print_r($_POST)));
       // Insert the rec_payment Payment to the database
       $payment = ms_core_new_payment($order->oid, 'ms_authorizenet', 'rec_payment');
       $payment->transaction = $_POST['x_trans_id'];
       $payment->amount = $_POST['x_amount'];
       $payment->currency = 'USD';
-      $payment->data = $_POST;
-      $payment->recurring_schedule = $order->recurring_schedule;
+      $payment->data = array('post' => $_POST);
 
       // Update the address
       $payment->billing_address = array(
@@ -2789,7 +2766,7 @@ function ms_authorizenet_silent_post() {
       $payment->last_name = $_POST['x_last_name'];
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       $recurring_schedule = ms_core_load_recurring_schedule($order->oid);
 
@@ -2797,10 +2774,9 @@ function ms_authorizenet_silent_post() {
       if ($recurring_schedule->total_occurrences != 0 AND $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
         $payment->type = 'rec_eot';
         $payment->amount = 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
       }
-    }
-    elseif ($response_code == 2) {
+    } elseif ($response_code == 2) {
       // Declined
       // Log this
       ms_core_log_error('ms_authorizenet', 'ARB Recurring Payment for Order #!num was Declined. Here are the details: @message',
@@ -2810,12 +2786,10 @@ function ms_authorizenet_silent_post() {
       $payment->transaction = ms_core_generate_transaction_id();
       $payment->amount = 0;
       $payment->currency = 'USD';
-      $payment->data = $_POST;
-      $payment->recurring_schedule = $order->recurring_schedule;
+      $payment->data = array('post' => $_POST);
 
-      ms_core_enter_payment($payment, FALSE);
-    }
-    elseif ($response_code == 3 && $reason_code == 8) {
+      ms_core_enter_payment($payment);
+    } elseif ($response_code == 3 && $reason_code == 8) {
       // An expired card
       // Log this
       ms_core_log_error('ms_authorizenet', 'ARB Recurring Payment for Order #!num failed because the card has expired. Here are the details: @message',
@@ -2825,12 +2799,10 @@ function ms_authorizenet_silent_post() {
       $payment->transaction = ms_core_generate_transaction_id();
       $payment->amount = 0;
       $payment->currency = 'USD';
-      $payment->data = $_POST;
-      $payment->recurring_schedule = $order->recurring_schedule;
+      $payment->data = array('post' => $_POST);
 
-      ms_core_enter_payment($payment, FALSE);
-    }
-    else {
+      ms_core_enter_payment($payment);
+    } else {
       // Other error
       // Log this
       ms_core_log_error('ms_authorizenet', 'ARB Recurring Payment for Order #!num has failed. Here are the details: @message',
@@ -2840,13 +2812,11 @@ function ms_authorizenet_silent_post() {
       $payment->transaction = ms_core_generate_transaction_id();
       $payment->amount = 0;
       $payment->currency = 'USD';
-      $payment->data = $_POST;
-      $payment->recurring_schedule = $order->recurring_schedule;
+      $payment->data = array('post' => $_POST);
 
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
     }
-  }
-  else {
+  } else {
     // No Order Loaded
     ms_core_log('ms_authorizenet', 'Unhandled Silent POST: !vars',
       array('!vars' => ms_core_print_r($_POST)));
@@ -2861,26 +2831,30 @@ function ms_authorizenet_silent_post() {
  * Handle Mail functions
  */
 function ms_authorizenet_mail($key, &$message, $seed_vars) {
+  $subject = "";
+  $body = "";
+  $tokens = array();
+
   switch ($key) {
     case 'expirationReminder':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
+      $tokens['payment_profile'] = $seed_vars['payment_profile'];
+      $tokens['account'] = user_load($tokens['payment_profile']->uid);
 
       $subject = variable_get('ms_authorizenet_expiration_reminder_subject', '');
       $body = variable_get('ms_authorizenet_expiration_reminder_body', '');
       break;
 
     case 'card_update_confirm':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
+      $tokens['payment_profile'] = $seed_vars['payment_profile'];
+      $tokens['account'] = user_load($tokens['payment_profile']->uid);
 
       $subject = variable_get('ms_authorizenet_card_update_confirm_subject', '');
       $body = variable_get('ms_authorizenet_card_update_confirm_body', '');
       break;
 
     case 'billing_error':
-      $payment_profile = $seed_vars['payment_profile'];
-      $account = user_load($payment_profile->uid);
+      $tokens['payment_profile'] = $seed_vars['payment_profile'];
+      $tokens['account'] = user_load($tokens['payment_profile']->uid);
 
       $subject = variable_get('ms_authorizenet_billing_error_subject', '');
       $body = variable_get('ms_authorizenet_billing_error_body', '');
@@ -2888,21 +2862,9 @@ function ms_authorizenet_mail($key, &$message, $seed_vars) {
   }
 
   // Replace the Tokens
-  $message['subject'] = token_replace($subject,
-    array(
-    'ms_authorizenet_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
-  $message['body'][] = token_replace($body,
-    array(
-    'ms_authorizenet_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
+  $message['subject'] = token_replace($subject, $tokens);
+  $message['body'][] = token_replace($body, $tokens);
 }
-
-// ======================================
-// TOKEN
-// ======================================
 
 /**
  * Implements hook_token_info().

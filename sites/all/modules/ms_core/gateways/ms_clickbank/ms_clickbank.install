@@ -19,7 +19,7 @@ function ms_clickbank_uninstall() {
 
 /**
  * Implements hook_schema().
- ().
+ * ().
  */
 function ms_clickbank_schema() {
   $schema['ms_clickbank_products'] = array(
@@ -29,7 +29,6 @@ function ms_clickbank_schema() {
         'type' => 'serial',
         'description' => 'The unique ClickBank Product ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'name' => array(
         'type' => 'varchar',
@@ -53,7 +52,6 @@ function ms_clickbank_schema() {
         'type' => 'int',
         'description' => 'The Product ID of the module',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
     ),
     'primary key' => array('cbpid'),

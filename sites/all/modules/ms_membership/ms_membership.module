@@ -6,6 +6,8 @@
  * Roles in the form of 'Memberships' by creating 'Membership Plans', which
  * define the terms of payment for memberships.
  *
+ * TODO - Call the proper user hooks when changing roles.
+ *
  * Copyright 2008-2013 MoneyScripts.net - Leighton Whiting
  */
 
@@ -16,7 +18,7 @@ function ms_membership_help($path, $arg) {
   $output = '';
   switch ($path) {
     case "admin/help#ms_membership":
-      $output = '<p>' . t("Support for a fully-fledged Paid Membership System.") . '</p>';
+      $output = '<p>' . t("Support for a fully-fledged Paid Membership System, including user registration integration for paid signup.") . '</p>';
       break;
   }
   return $output;
@@ -302,7 +304,7 @@ function ms_membership_user_insert(&$edit, $account, $category) {
     $order = ms_core_order_new('cart', $account->uid);
 
     // Add the Product.
-    $product = ms_core_new_product(ms_products_translate_plan($plan, 'name'), 'ms_membership', $plan->sku, $plan->recurring_schedule['main_amount'], 'cart');
+    $product = ms_core_new_product($plan->name, 'ms_membership', $plan->sku, $plan->recurring_schedule['main_amount'], 'cart');
 
     $order = ms_core_add_order_product($order, $product);
 
@@ -372,12 +374,10 @@ function ms_membership_form_user_register_form_alter(&$form, &$form_state) {
 
         // Check if it is a special page for 1 membership.
         if ($register_arg == 'membership' AND $arg_plan = arg(3)) {
-          if ($plan->name != rawurldecode($arg_plan)) {
+          if ($plan->sku != $arg_plan) {
             continue;
           }
-        }
-
-        elseif (arg(0) == 'user' AND !in_array($register_arg, $register_urls)) {
+        } elseif (arg(0) == 'user' AND !in_array($register_arg, $register_urls)) {
           continue;
         }
 
@@ -467,13 +467,11 @@ function ms_membership_form_user_register_form_alter(&$form, &$form_state) {
       // Put our form submit handler first in the list.
       if (variable_get('ms_membership_user_create_time', 'after_payment') == 'after_payment') {
         array_unshift($form['#submit'], 'ms_membership_register_form_submit');
-      }
-      else {
+      } else {
         // Let's try putting the submit at the end of the array.
         $form['#submit'][] = 'ms_membership_register_form_after_submit';
       }
-    }
-    elseif (arg(0) == 'user' && arg(1) == 'register' AND isset($register_arg) AND $register_arg AND variable_get('ms_membership_force_signup', FALSE)) {
+    } elseif (arg(0) == 'user' && arg(1) == 'register' AND isset($register_arg) AND $register_arg AND variable_get('ms_membership_force_signup', FALSE)) {
       // Block Access to the user.
       drupal_goto('user/register');
     }
@@ -530,14 +528,14 @@ function ms_membership_remove_bulk_memberships($accounts, $sku) {
         // Remove roles and disable all memberships that match the description.
         foreach ($purchases as $purchase) {
           if ($purchase->status != 'expired') {
-          // Add and remove the appropriate roles at expiration.
-          ms_membership_change_roles($account->uid, $plan->expire_grant_roles, $plan->expire_remove_roles);
+            // Add and remove the appropriate roles at expiration.
+            ms_membership_change_roles($account->uid, $plan->expire_grant_roles, $plan->expire_remove_roles);
 
-          // Set the Membership to Inactive.
-          ms_products_change_purchase_status($purchase->id, 'expired');
+            // Set the Membership to Inactive.
+            ms_products_change_purchase_status($purchase->id, 'expired');
 
-          drupal_set_message(t("Removed @plan from <a href='@url'>@name</a>",
-          array('@plan' => $plan->name, '@name' => $account->name, '@url' => url('user/' . $account->uid))));
+            drupal_set_message(t("Removed @plan from <a href='@url'>@name</a>",
+              array('@plan' => $plan->name, '@name' => $account->name, '@url' => url('user/' . $account->uid))));
           }
         }
       }
@@ -589,8 +587,7 @@ function ms_membership_form_user_admin_account_alter(&$form, $form_state, $form_
       $sku = $operation_array[1];
       $add_plans[$option] = $plans[$sku];
       unset($options[$option]);
-    }
-    elseif ($operation == 'ms_remove_membership') {
+    } elseif ($operation == 'ms_remove_membership') {
       $sku = $operation_array[1];
       $remove_plans[$option] = $plans[$sku];
       unset($options[$option]);
@@ -598,9 +595,9 @@ function ms_membership_form_user_admin_account_alter(&$form, $form_state, $form_
   }
   if (count($add_plans)) {
     $form['options']['operation']['#options'] = $options + array(
-      t('Add a membership to the selected users') => $add_plans,
-      t('Remove a membership from the selected users') => $remove_plans,
-    );
+        t('Add a membership to the selected users') => $add_plans,
+        t('Remove a membership from the selected users') => $remove_plans,
+      );
   }
 }
 
@@ -617,7 +614,6 @@ function ms_membership_register_form_free_submit($form, &$form_state) {
     if (variable_get('ms_membership_bypass_checkout_free', TRUE) AND $plan->recurring_schedule['main_amount'] == 0) {
       // Also check for plan options.
       if (!empty($form_state['values']['ms_membership']['options'])) {
-        $options = array_filter($form_state['values']['ms_membership']['options']);
         foreach ($form_state['values']['ms_membership']['options'] as $option_name => $active) {
           // If the option costs money and was selected, the plan isn't free.
           if (!empty($plan->plan_options[$option_name]->amount) && $plan->plan_options[$option_name]->amount > 0) {
@@ -647,7 +643,6 @@ function ms_membership_register_form_after_submit($form, &$form_state) {
       $is_free = TRUE;
       // Also check for plan options.
       if (!empty($form_state['values']['ms_membership']['options'])) {
-        $options = array_filter($form_state['values']['ms_membership']['options']);
         foreach ($form_state['values']['ms_membership']['options'] as $option_name => $active) {
           // If the option costs money and was selected, the plan isn't free.
           if (!empty($plan->plan_options[$option_name]->amount) && $plan->plan_options[$option_name]->amount > 0) {
@@ -663,7 +658,7 @@ function ms_membership_register_form_after_submit($form, &$form_state) {
     }
 
     // Create a new product and add it to the order.
-    $product = ms_core_new_product(ms_products_translate_plan($plan, 'name'), 'ms_membership', $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
+    $product = ms_core_new_product($plan->name, 'ms_membership', $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
 
     // Set the Recurring Schedule Settings.
     $product->recurring_schedule = $plan->recurring_schedule;
@@ -719,7 +714,6 @@ function ms_membership_register_form_submit($form, &$form_state) {
       $is_free = TRUE;
       // Also check for plan options.
       if (!empty($form_state['values']['ms_membership']['options'])) {
-        $options = array_filter($form_state['values']['ms_membership']['options']);
         foreach ($form_state['values']['ms_membership']['options'] as $option_name => $active) {
           // If the option costs money and was selected, the plan isn't free.
           if (!empty($plan->plan_options[$option_name]->amount) && $plan->plan_options[$option_name]->amount > 0) {
@@ -735,7 +729,7 @@ function ms_membership_register_form_submit($form, &$form_state) {
     }
 
     // Create a new product and add it to the order.
-    $product = ms_core_new_product(ms_products_translate_plan($plan, 'name'), 'ms_membership', $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
+    $product = ms_core_new_product($plan->name, 'ms_membership', $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
 
     $product->recurring_schedule = $plan->recurring_schedule;
 
@@ -801,16 +795,16 @@ function ms_membership_register_form_submit($form, &$form_state) {
  */
 function ms_membership_add_role($uid, $rid) {
   $account = user_load($uid, TRUE);
-  if ($rid AND $account->uid) {
+  if ($account && $rid && $account->uid) {
     if (!in_array($rid, array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID))) {
       // Remove the role first just in case the user already has it for some
       // reason.
       ms_membership_remove_role($account->uid, $rid);
-      $id = db_insert('users_roles')
+      db_insert('users_roles')
         ->fields(array(
-              'uid' => $account->uid,
-              'rid' => $rid,
-            ))
+          'uid' => $account->uid,
+          'rid' => $rid,
+        ))
         ->execute();
       $roles = user_roles(TRUE);
       ms_core_log('ms_membership', 'Added role !role to !user.',
@@ -832,7 +826,7 @@ function ms_membership_add_role($uid, $rid) {
 function ms_membership_remove_role($uid, $rid) {
   $account = user_load($uid);
 
-  if ($rid AND $account->uid AND isset($account->roles[$rid])) {
+  if ($account && $rid && $account->uid && isset($account->roles[$rid])) {
     if (!in_array($rid, array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID))) {
       db_delete('users_roles')
         ->condition('uid', $account->uid)
@@ -934,7 +928,7 @@ function ms_membership_purchase_membership($mpid) {
 function ms_membership_ms_products_before_added_to_cart($account, $plan) {
   // If not registered, go to the registration page for that plan.
   if (!ms_core_variable_get('ms_membership_skip_registration', FALSE, $plan) AND !$account->uid) {
-    drupal_goto('user/register/membership/' . rawurlencode($plan->name));
+    drupal_goto('user/register/membership/' . $plan->sku);
   }
 }
 
@@ -973,7 +967,8 @@ function ms_membership_rebuild_memberships() {
     $plan = $plans[$purchase->sku];
     ms_membership_change_roles($purchase->uid, $plan->expire_grant_roles, $plan->expire_remove_roles);
     if ($purchase->oid AND $order = ms_core_order_load($purchase->oid) AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid)
-      AND !empty($recurring_schedule->current_payments)) {
+      AND !empty($recurring_schedule->current_payments)
+    ) {
       db_update('ms_products_purchases')
         ->fields(array(
           'current_payments' => $recurring_schedule->current_payments,
@@ -991,7 +986,8 @@ function ms_membership_rebuild_memberships() {
     $plan = $plans[$purchase->sku];
     ms_membership_change_roles($purchase->uid, $plan->start_grant_roles, $plan->start_remove_roles);
     if ($purchase->oid AND $order = ms_core_order_load($purchase->oid) AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid)
-      AND !empty($recurring_schedule->current_payments)) {
+      AND !empty($recurring_schedule->current_payments)
+    ) {
       db_update('ms_products_purchases')
         ->fields(array(
           'current_payments' => $recurring_schedule->current_payments,
@@ -1009,7 +1005,6 @@ function ms_membership_rebuild_memberships() {
  */
 function ms_membership_show_members() {
   drupal_set_title(t('Members'));
-  global $user;
   $content = '';
   $build = array();
   $name = '';
@@ -1066,7 +1061,7 @@ function ms_membership_show_members() {
 
   if (isset($_GET['name'])) {
     $name = $_GET['name'];
-    $query->condition('u.name', '%' . $name .'%', 'LIKE');
+    $query->condition('u.name', '%' . $name . '%', 'LIKE');
   }
 
   $query = $query->extend('TableSort')->orderByHeader($headers);
@@ -1084,8 +1079,6 @@ function ms_membership_show_members() {
 
   // Load the plans.
   $plans = ms_products_get_plans_list('ms_membership');
-
-  $plan_stats = array();
 
   $stats_html = '<h3>' . t('Membership Statistics') . '</h3>';
   foreach ($plans as $sku => $plan_name) {
@@ -1109,7 +1102,6 @@ function ms_membership_show_members() {
       );
 
       $plan = ms_products_plan_load($purchase->sku);
-      $order = ms_core_order_load($purchase->oid);
 
       // Build the info for the membership.
       $mem_info = array();
@@ -1121,9 +1113,10 @@ function ms_membership_show_members() {
       $mem_info[] = t('Payments: %rep', array('%rep' => $purchase->current_payments . '/' . ($purchase->max_payments ? $purchase->max_payments : 'Unlimited')));
       $mem_info[] = t('Actions: !rep', array('!rep' => implode(' | ', $actions)));
       if ($purchase->oid != -1) {
+        $recurring_schedule = ms_core_get_recurring_schedule($purchase->oid, $plan->sku, 'ms_membership');
         $mem_info[] = t('Order: !rep', array('!rep' => l(t('Order @num', array('@num' => $purchase->oid)), 'admin/moneyscripts/orders/view/' . $purchase->oid)));
-        $mem_info[] = t('Last Payment: %rep', array('%rep' => $order ? ms_core_get_last_payment_string($order) : t('N/A')));
-        $mem_info[] = t('Next Payment: %rep', array('%rep' => $order ? ms_core_get_next_payment_string($order) : t('N/A')));
+        $mem_info[] = t('Last Payment: %rep', array('%rep' => $recurring_schedule ? ms_core_get_last_payment_string($recurring_schedule) : t('N/A')));
+        $mem_info[] = t('Next Payment: %rep', array('%rep' => $recurring_schedule ? ms_core_get_next_payment_string($recurring_schedule) : t('N/A')));
       }
 
       $status_class = 'status_' . $purchase->status;
@@ -1188,9 +1181,8 @@ function ms_membership_prepare_mail($module, $id, $to, $language, $seed_vars, $s
     $order->amount = 0;
     $vars->payment = new stdClass();
     $vars->payment->amount = 0;
-  }
-  else {
-    if (!$vars->payment = ms_core_get_last_payment($order)) {
+  } else {
+    if (!$vars->payment = ms_core_get_last_payment($order, FALSE)) {
       $vars->payment = new stdClass();
       $vars->payment->amount = 0;
     }
@@ -1218,7 +1210,7 @@ function ms_membership_prepare_mail($module, $id, $to, $language, $seed_vars, $s
     Membership Plan: [ms_products_plan:name]
     Amount: [ms_core_payment:paymentAmount]
     Date: [date:long]"));
-    break;
+      break;
     case 'admin_cancel':
       $message['subject'] = variable_get('ms_membership_cancelled_membership_mail_subject', t("Membership Cancelled: [user:name]!"));
       $message['body'] = variable_get('ms_membership_cancelled_membership_mail_body', t("A membership has been cancelled.
@@ -1226,7 +1218,7 @@ function ms_membership_prepare_mail($module, $id, $to, $language, $seed_vars, $s
     Name: [ms_core_order:customerName]
     Membership Plan: [ms_products_plan:name]
     Date: [date:long]"));
-    break;
+      break;
   }
 
   // Replace the Tokens.
@@ -1267,7 +1259,7 @@ function ms_membership_mail($key, &$message, $vars) {
   $message['body'][] = $vars['body'];
 
   ms_core_log('ms_membership', 'Sending an Email to a User. Message: !message',
-      array('!message' => ms_core_print_r($message)));
+    array('!message' => ms_core_print_r($message)));
 }
 
 /**
@@ -1319,10 +1311,10 @@ function ms_membership_ms_order_assign_user($type, $product, $order, $payment) {
           case 'cart':
           case 'rec_signup':
             ms_core_log('ms_membership', 'Assigning a user to an Order: Payment Type: !type<br />Product: !product <br />Payment: !payment',
-                array(
-                  '!type' => $type,
-                  '!product' => ms_core_print_r($product),
-                  '!payment' => ms_core_print_r($payment)));
+              array(
+                '!type' => $type,
+                '!product' => ms_core_print_r($product),
+                '!payment' => ms_core_print_r($payment)));
             // If the user has already been registered, just set the user and unblock the user.
             if (isset($product->data['created_user_id']) AND $account = user_load($product->data['created_user_id'])) {
               // Unblock the user.
@@ -1334,22 +1326,17 @@ function ms_membership_ms_order_assign_user($type, $product, $order, $payment) {
               // Save the user to the order.
               $order->uid = $account->uid;
               ms_core_order_save($order);
-            }
-            else {
+            } else {
               //Register the User once they have paid.
-              $form_state = array();
-
               $form_state = $product->data['form'];
 
               if (isset($form_state['values']['pass'])) {
                 if (is_array($form_state['values']['pass'])) {
                   $pass = $form_state['values']['pass']['pass1'];
-                }
-                else {
+                } else {
                   $pass = $form_state['values']['pass'];
                 }
-              }
-              else {
+              } else {
                 $pass = user_password();
               }
 
@@ -1364,8 +1351,7 @@ function ms_membership_ms_order_assign_user($type, $product, $order, $payment) {
               // Send the email.
               if (variable_get('ms_core_send_registration_mail', TRUE)) {
                 $form_state['values']['notify'] = TRUE;
-              }
-              else {
+              } else {
                 $form_state['values']['notify'] = FALSE;
               }
 
@@ -1431,7 +1417,7 @@ function ms_membership_ms_order_assign_user($type, $product, $order, $payment) {
               drupal_form_submit('user_register_form', $form_state);
               $errors = form_get_errors();
               if (is_array($errors) AND !empty($errors)) {
-                ms_core_log_error('ms_membership', 'Form Errors: '. ms_core_print_r($errors));
+                ms_core_log_error('ms_membership', 'Form Errors: ' . ms_core_print_r($errors));
               }
               // Switch back to the account we saved in the $temp_user variable.
               $user = $temp_user;
@@ -1447,8 +1433,7 @@ function ms_membership_ms_order_assign_user($type, $product, $order, $payment) {
                 $temp_account = $form_state['user'];
 
                 $account = user_load($temp_account->uid);
-              }
-              else {
+              } else {
                 $account = FALSE;
               }
 
@@ -1485,10 +1470,9 @@ function ms_membership_ms_order_assign_user($type, $product, $order, $payment) {
                 $order->uid = $account->uid;
                 ms_core_order_save($order);
                 drupal_get_messages();
-              }
-              else {
+              } else {
                 // Otherwise we have an error.
-                ms_core_log_error('ms_membership', 'Failed to create a user.', array(), WATCHDOG_ERROR);
+                ms_core_log_error('ms_membership', 'Failed to create a user.');
               }
             }
 
@@ -1643,4 +1627,6 @@ function ms_membership_ctools_plugin_directory($module, $plugin) {
   if ($module == 'ms_products' && $plugin == 'product_types') {
     return 'plugins/product_types';
   }
+
+  return NULL;
 }

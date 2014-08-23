@@ -203,9 +203,9 @@ function ms_paypal_wpp_admin() {
       This will hopefully be fixed soon, but until then, it is necessary to set your IPN Notification URL to the above in your PayPal Account.
       !link for instructions on how to do this. See !info for more information about this issue.',
       array(
-      '!link' => l(t('Click here'), 'https://cms.paypal.com/us/cgi-bin/?cmd=_render-content&content_ID=developer/e_howto_admin_IPNSetup'),
-      '!info' => l(t('this page'), 'https://www.x.com/developers/paypal/forums/instant-payment-notifications-ipn-payment-data-transfer-pdt/multiple-site-multiple-ipn#answer-182618'),
-    )),
+        '!link' => l(t('Click here'), 'https://cms.paypal.com/us/cgi-bin/?cmd=_render-content&content_ID=developer/e_howto_admin_IPNSetup'),
+        '!info' => l(t('this page'), 'https://www.x.com/developers/paypal/forums/instant-payment-notifications-ipn-payment-data-transfer-pdt/multiple-site-multiple-ipn#answer-182618'),
+      )),
   );
   $form['general'] = array(
     '#type' => 'fieldset',
@@ -265,7 +265,7 @@ function ms_paypal_wpp_ms_core_payment_gateway() {
     'name' => 'PayPal WPP - Express Checkout',
     'display_name' => 'PayPal',
     'description' => '<img src="https://www.paypal.com/en_US/i/logo/PayPal_mark_37x23.gif" style="position: relative; top: 5px; margin-right: 4px;" />'
-         . t('PayPal - pay without sharing your financial information.'),
+      . t('PayPal - pay without sharing your financial information.'),
     'module' => 'ms_paypal_wpp_ec',
     'cards' => $pp_cards,
     'checkout_path' => 'ms/checkout/express_checkout',
@@ -440,7 +440,6 @@ function ms_paypal_wpp_billing_page_form($form, &$form_state, $order) {
     '#type' => 'select',
     '#title' => t('Country'),
     '#options' => ms_core_get_countries('iso'),
-    '#default_value' => 'US',
     '#required' => TRUE,
     '#default_value' => $payment_profile->country,
   );
@@ -477,8 +476,6 @@ function ms_paypal_wpp_billing_page_form_validate($form, &$form_state) {
   $v = $form_state['values'];
 
   $order = ms_core_order_load($v['oid']);
-
-  $account = user_load($order->uid);
 
   // Get the subscription_id from the order
   $profile_id = ms_core_get_order_rec_id($order->oid);
@@ -532,8 +529,7 @@ function ms_paypal_wpp_billing_page_form_validate($form, &$form_state) {
       'exp_year' => $v['cc_exp_year'],
     );
     ms_core_payment_profile_save($payment_profile);
-  }
-  else {
+  } else {
     form_set_error('cc_number', t('Error: @num - @message', array('@num' => $result['code'], '@message' => $result['message'])));
   }
 }
@@ -586,14 +582,12 @@ function ms_paypal_wpp_cancel_page_confirm_submit($form, &$form_state) {
     // Generate a Unique Transaction ID
     $payment->transaction = $nvp_response['CORRELATIONID'];
     $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
     $payment->recurring_id = $nvp_response['PROFILEID'];
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
 
-    ms_core_enter_payment($payment, FALSE);
-  }
-  else {
+    ms_core_enter_payment($payment);
+  } else {
     // Log the error
     ms_core_log_error('ms_paypal_wpp', 'There was a problem canceling the order: @error',
       array('@error' => $nvp_response['L_LONGMESSAGE0']));
@@ -623,8 +617,7 @@ function ms_paypal_wpp_modify_confirm($form, &$form_state, $oid, $id) {
     $form['#ms_core_id'] = $id;
     return confirm_form($form, t('Are you sure you want to change your order to %new_prod?',
       array('%new_prod' => $new_product->name)), '', $details_text, t('Confirm'));
-  }
-  else {
+  } else {
     drupal_set_message(t("Error loading the product: @id.", array('@id' => $module . '-' . $id)));
     drupal_not_found();
   }
@@ -636,7 +629,6 @@ function ms_paypal_wpp_modify_confirm($form, &$form_state, $oid, $id) {
 function ms_paypal_wpp_modify_confirm_submit($form, &$form_state) {
   // Load the order and products
   $order = ms_core_order_load($form['#ms_core_oid']);
-  $account = user_load($order->uid);
 
   $new_product = ms_core_load_module_product(ms_core_get_order_module($order), $form['#ms_core_id']);
 
@@ -675,15 +667,13 @@ function ms_paypal_wpp_modify_confirm_submit($form, &$form_state) {
     $payment->recurring_id = $profile_id;
     $payment->currency = $order->currency;
     $payment->data = array('new_product' => $new_product);
-    $payment->recurring_schedule = $new_product->recurring_schedule;
     $payment->billing_address = $order->billing_address;
     $payment->shipping_address = $order->shipping_address;
 
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     drupal_goto();
-  }
-  else {
+  } else {
     drupal_set_message(t('There was a problem modifying your billing cycle. The error has been logged. Please contact a site admin for further help.'));
     // Log the error
     ms_core_log_error('ms_paypal_wpp', 'There was a problem changing the recurring payments: @error',
@@ -774,7 +764,8 @@ function ms_paypal_wpp_ec_redirect() {
  * Charge the Express Checkout order
  */
 function ms_paypal_wpp_ec_submit_form_submit($form, &$form_state) {
-  if (!isset($_SESSION['TOKEN']) || ($order = ms_core_load_session_order()) == FALSE) {
+  $order = ms_core_load_session_order();
+  if (!isset($_SESSION['TOKEN']) || $order == FALSE) {
     unset($_SESSION['ms_oid']);
     unset($_SESSION['TOKEN'], $_SESSION['PAYERID']);
     drupal_set_message(t('An error has occurred in your PayPal payment. Please review your cart and try again.'));
@@ -788,7 +779,6 @@ function ms_paypal_wpp_ec_submit_form_submit($form, &$form_state) {
         'PAYERID' => $_SESSION['PAYERID'],
       );
       $response = ms_paypal_wpp_setup_recurring_payment($order, $data, $order->recurring_schedule);
-      $nvp_response = $response['data']['nvp_response'];
 
       if ($response['success']) {
         // Add the payment to the order
@@ -801,7 +791,6 @@ function ms_paypal_wpp_ec_submit_form_submit($form, &$form_state) {
         $payment->transaction = $response['data']['txn_id'];
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
         $payment->recurring_id = $response['data']['subscr_id'];
 
         $v = $response['data']['nvp_details'];
@@ -821,15 +810,14 @@ function ms_paypal_wpp_ec_submit_form_submit($form, &$form_state) {
 
         // Add the Payment to the Order
         $payment->amount = !empty($response['data']['nvp_details']['AMT']) ? $response['data']['nvp_details']['AMT'] : 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Prevent Duplicate Processing
         unset($_SESSION['TOKEN'], $_SESSION['PAYERID']);
 
         // Redirect
         $form_state['redirect'] = 'ms/thankyou';
-      }
-      else {
+      } else {
         // Log the error
         ms_core_log_error('ms_paypal_wpp', 'Error Setting up Recurring Payments: @message',
           array('@message' => $response['message']));
@@ -873,9 +861,8 @@ function ms_paypal_wpp_ec_submit_form_submit($form, &$form_state) {
         ms_core_enter_payment($payment);
 
         $form_state['redirect'] = 'ms/thankyou';
-      }
-      else { // There was a problem
-        drupal_set_message(t('Error: %error', array('%error' => $response['message'])));
+      } else { // There was a problem
+        drupal_set_message(t('Error: %error', array('%error' => $result['message'])));
       }
       break;
   }
@@ -911,15 +898,16 @@ function ms_paypal_wpp_ec_do_express_checkout_payment($token, $payer_id, $order,
   ms_core_log('ms_paypal_wpp', 'Express Response: ' . ms_core_print_r($nvp_response));
 
   switch ($nvp_response['ACK']) {
+    /** @noinspection PhpMissingBreakStatementInspection */
     case 'SuccessWithWarning':
       ms_core_log_error('ms_paypal_wpp', '<b>Payment succeeded with a warning.</b>!paypal_message',
         array(
-        '!paypal_message' => _ms_paypal_wpp_build_error_messages($nvp_response),
-      ),
+          '!paypal_message' => _ms_paypal_wpp_build_error_messages($nvp_response),
+        ),
         WATCHDOG_WARNING,
         l(t('view order'), 'admin/moneyscripts/orders/view/' . $order->oid)
       );
-      // Fall through.
+    // Fall through.
     case 'Success':
       // Get the address of the customer using GetExpressCheckoutDetails
       $nvp_details_request = array(
@@ -1000,7 +988,8 @@ function ms_paypal_wpp_ec_review_redirect() {
  * Handles the review page for Express Checkout Shortcut Flow.
  */
 function ms_paypal_wpp_ec_review() {
-  if (!isset($_SESSION['TOKEN']) || ($order = ms_core_load_session_order()) == FALSE) {
+  $order = ms_core_load_session_order();
+  if (!isset($_SESSION['TOKEN']) || ($order == FALSE)) {
     unset($_SESSION['ms_oid']);
     unset($_SESSION['TOKEN'], $_SESSION['PAYERID']);
     drupal_set_message(t('An error has occurred in your PayPal payment. Please review your cart and try again.'));
@@ -1027,7 +1016,8 @@ function ms_paypal_wpp_ec_review() {
  * Present the final total to the user for checkout!
  */
 function ms_paypal_wpp_ec_submit() {
-  if (!isset($_SESSION['TOKEN']) || ($order = ms_core_load_session_order()) == FALSE) {
+  $order = ms_core_load_session_order();
+  if (!isset($_SESSION['TOKEN']) || ($order == FALSE)) {
     unset($_SESSION['ms_oid']);
     unset($_SESSION['TOKEN'], $_SESSION['PAYERID']);
     drupal_set_message(t('An error has occurred in your PayPal payment. Please review your cart and try again.'));
@@ -1077,21 +1067,18 @@ function ms_paypal_wpp_ipn($oid = 0) {
   if (isset($_POST['invoice'])) {
     if (($len = strpos($_POST['invoice'], '-')) > 0) { // For regular cart payments
       $order = ms_core_order_load(intval(substr($_POST['invoice'], 0, $len)));
-    }
-    else {
+    } else {
       $order = ms_core_order_load(intval($_POST['invoice']));
     }
-  }
-  elseif (isset($_POST['rp_invoice_id'])) { // For Recurring Payments
+  } elseif (isset($_POST['rp_invoice_id'])) { // For Recurring Payments
     // Load the order for a recurring payment from the rp_invoice_id
     $order = ms_core_order_load(intval($_POST['rp_invoice_id']));
-  }
-  elseif (isset($_POST['recurring_payment_id'])) {
+  } elseif (isset($_POST['recurring_payment_id'])) {
     $order = ms_core_order_load_by_rec_id($_POST['recurring_payment_id']);
   }
 
   // Attempt to load the order for this IPN
-  if (!$order) {
+  if (empty($order)) {
     // If no order found, log an error and exit
     ms_core_log_error('ms_paypal_wpp', 'IPN attempted for non-existent order. Details: !ipn',
       array('!ipn' => ms_core_print_r($_POST)));
@@ -1101,7 +1088,7 @@ function ms_paypal_wpp_ipn($oid = 0) {
   // Validate the IPN
   if ($ipn = ms_paypal_wpp_ipn_handler($_POST)) {
     ms_core_log('ms_paypal_wpp', 'IPN received. Details: !ipn',
-        array('!ipn' => ms_core_print_r($ipn)));
+      array('!ipn' => ms_core_print_r($ipn)));
     // Insert the Payment to the order
     $payment = ms_core_new_payment($order->oid, $order->gateway, ms_paypal_wpp_get_type($ipn['txn_type']));
     $payment->transaction = isset($ipn['txn_id']) ? $ipn['txn_id'] : ms_core_new_transaction($ipn);
@@ -1115,8 +1102,6 @@ function ms_paypal_wpp_ipn($oid = 0) {
       $payment->recurring_id = $ipn['recurring_payment_id'];
     }
     $payment->data = $ipn;
-
-    $payment->recurring_schedule = $order->recurring_schedule;
 
     // Update the address
     $payment->billing_address = array(
@@ -1135,7 +1120,7 @@ function ms_paypal_wpp_ipn($oid = 0) {
     switch ($payment->type) {
       case 'rec_payment':
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
         break;
 
       case 'rec_signup':
@@ -1243,8 +1228,7 @@ function ms_paypal_wpp_ipn($oid = 0) {
           array('!data' => ms_core_print_r($_REQUEST)));
         break;
     }
-  }
-  else {
+  } else {
     ms_core_log_error('ms_paypal_wpp', 'Error: An IPN has Failed Validation. This may be from a spoofed IPN or an attempt to hack. Here are the details: Data: !data',
       array('!data' => ms_core_print_r($_REQUEST)));
   }
@@ -1265,24 +1249,21 @@ function ms_paypal_wpp_ipn_handler($ipn_vars) {
 
   if (variable_get('ms_paypal_wpp_wpp_server', '') == 'https://api-3t.paypal.com/nvp') {
     $host = 'https://www.paypal.com/cgi-bin/webscr';
-  }
-  else {
+  } else {
     $host = variable_get('ms_paypal_wpp_wps_server', 'https://www.sandbox.paypal.com/cgi-bin/webscr');
   }
 
   $response = drupal_http_request($host, array('headers' => array(), 'method' => 'POST', 'data' => $req));
 
-  if (array_key_exists('error', $response)) {
+  if (!empty($response->error)) {
     ms_core_log_error('ms_paypal_wpp', 'IPN failed with HTTP error @error, code @code.', array('@error' => $response->error, '@code' => $response->code));
     return FALSE;
   }
 
   if (strcmp($response->data, 'VERIFIED') == 0) {
     return $_POST;
-  }
-  elseif (strcmp($response->data, 'INVALID') == 0) {
+  } elseif (strcmp($response->data, 'INVALID') == 0) {
     ms_core_log_error('ms_paypal_wpp', 'IPN transaction failed verification.');
-    ms_core_add_history_item($order, 0, t('An IPN transaction failed verification for this order.'), TRUE);
     return FALSE;
   }
 }
@@ -1367,6 +1348,7 @@ function ms_paypal_wpp_api_request($request, $server) {
 
 // Turns PayPal's NVP response to an API call into an associative array.
 function _ms_paypal_wpp_nvp_to_array($nvpstr) {
+  $nvp_array = array();
   foreach (explode('&', $nvpstr) as $nvp) {
     list($key, $value) = explode('=', $nvp);
     $nvp_array[urldecode($key)] = urldecode($value);
@@ -1374,7 +1356,6 @@ function _ms_paypal_wpp_nvp_to_array($nvpstr) {
 
   return $nvp_array;
 }
-
 
 
 // Returns a human readable message for the AVS code.
@@ -1538,13 +1519,11 @@ function ms_paypal_wpp_cancel() {
  *   TRUE or FALSE indicating the success of the update.
  */
 function ms_paypal_wpp_recurring_update($order, $profile_id, $updates = array()) {
-  global $user;
-
   // Build an NVP request.
   $nvp_request = array(
-    'METHOD' => 'UpdateRecurringPaymentsProfile',
-    'PROFILEID' => $profile_id,
-  ) + $updates;
+      'METHOD' => 'UpdateRecurringPaymentsProfile',
+      'PROFILEID' => $profile_id,
+    ) + $updates;
 
   // Post the request, and parse the response.
   $nvp_response = ms_paypal_wpp_api_request($nvp_request, variable_get('ms_paypal_wpp_wpp_server', 'https://api-3t.sandbox.paypal.com/nvp'));
@@ -1643,7 +1622,6 @@ function ms_paypal_wpp_direct_payment_checkout_form_validate($form, &$form_state
     case 'recurring':
       // Create a new recurring payment profile with paypal
       $response = ms_paypal_wpp_setup_recurring_payment($order, $v, $order->recurring_schedule);
-      $nvp_response = $response['data']['nvp_response'];
 
       if ($response['success']) {
         // Add the payment to the order
@@ -1656,7 +1634,6 @@ function ms_paypal_wpp_direct_payment_checkout_form_validate($form, &$form_state
         $payment->transaction = $response['data']['txn_id'];
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
         $payment->recurring_id = $response['data']['subscr_id'];
 
         // Update the address
@@ -1675,7 +1652,7 @@ function ms_paypal_wpp_direct_payment_checkout_form_validate($form, &$form_state
 
         // Add the Payment to the Order
         $payment->amount = !empty($response['data']['nvp_details']['AMT']) ? $response['data']['nvp_details']['AMT'] : 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Prevent Duplicate Processing
         unset($_SESSION['TOKEN'], $_SESSION['PAYERID']);
@@ -1704,8 +1681,7 @@ function ms_paypal_wpp_direct_payment_checkout_form_validate($form, &$form_state
           'exp_year' => $v['cc_exp_year'],
         );
         ms_core_payment_profile_save($payment_profile);
-      }
-      else {
+      } else {
         // Log the error
         ms_core_log_error('ms_paypal_wpp', 'Error Setting up Recurring Payment: !error Details: !details',
           array('!error' => $response['message'], '!details' => ms_core_print_r($response)), WATCHDOG_WARNING);
@@ -1774,8 +1750,7 @@ function ms_paypal_wpp_direct_payment_checkout_form_validate($form, &$form_state
           'exp_year' => $v['cc_exp_year'],
         );
         ms_core_payment_profile_save($payment_profile);
-      }
-      else { // The Credit Card was not approved, set an error on the form
+      } else { // The Credit Card was not approved, set an error on the form
         form_set_error('ccnumber', t('Error: @error', array('@error' => $response['data']['nvp_response']['L_LONGMESSAGE0'])));
         ms_core_log_error('ms_paypal_wpp', 'Error Processing Direct Payment Form: !error Details: !details',
           array('!error' => $response['message'], '!details' => ms_core_print_r($response)), WATCHDOG_WARNING);
@@ -1793,8 +1768,7 @@ function ms_paypal_wpp_direct_payment_checkout_form_submit($form, &$form_state) 
   // If the Order was charged, complete it
   if (isset($v['ms_order_charged']) AND $v['ms_order_charged']) {
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // There was an error...
     drupal_set_message(t("There was an error processing the payment. Please contact the site administrator."), 'error');
   }
@@ -1808,8 +1782,6 @@ function ms_paypal_wpp_direct_payment_checkout_form_submit($form, &$form_state) 
  * Calls DoDirectPayment
  */
 function ms_paypal_wpp_direct_payment_charge($order, $amount, $data, $mode = 'AUTH_CAPTURE') {
-  global $user;
-
   $nvp_request = array(
     'METHOD' => 'DoDirectPayment',
     'PAYMENTACTION' => 'Sale',
@@ -1858,15 +1830,16 @@ function ms_paypal_wpp_direct_payment_charge($order, $amount, $data, $mode = 'AU
   $nvp_response = ms_paypal_wpp_api_request($nvp_request, variable_get('ms_paypal_wpp_wpp_server', 'https://api-3t.sandbox.paypal.com/nvp'));
 
   switch ($nvp_response['ACK']) {
+    /** @noinspection PhpMissingBreakStatementInspection */
     case 'SuccessWithWarning':
       ms_core_log_error('ms_paypal_wpp', '<b>Payment succeeded with a warning.</b>!paypal_message',
         array(
-        '!paypal_message' => _ms_paypal_wpp_build_error_messages($nvp_response),
-      ),
+          '!paypal_message' => _ms_paypal_wpp_build_error_messages($nvp_response),
+        ),
         WATCHDOG_WARNING,
         l(t('view order'), 'admin/moneyscripts/orders/view/' . $order->oid)
       );
-      // Fall through.
+    // Fall through.
     case 'Success':
       $message = t('<b>Payment</b><br /><b>Success: </b>@amount', array('@amount' => ms_core_format_money($nvp_request['AMT'], $nvp_response['CURRENCYCODE'])));
 
@@ -1978,8 +1951,7 @@ function ms_paypal_wpp_setup_recurring_payment($order, $data, $recurring_schedul
     $nvp_request['ACCT'] = $data['cc_number'];
     $nvp_request['EXPDATE'] = date('mY', mktime(0, 0, 0, $data['cc_exp_month'], 1, $data['cc_exp_year']));
     $nvp_request['CVV2'] = $data['cc_cvv'];
-  }
-  else { // Otherwise, add the other info
+  } else { // Otherwise, add the other info
     $nvp_request['TOKEN'] = $data['TOKEN'];
   }
 
@@ -1987,14 +1959,12 @@ function ms_paypal_wpp_setup_recurring_payment($order, $data, $recurring_schedul
     if ($recurring_schedule['trial_amount'] > 0) {
       // Set the trial amount as the initial amount to collect immediately
       $nvp_request['INITAMT'] = round($recurring_schedule['trial_amount'], 2);
-    }
-    else {
+    } else {
       // If there is a free trial, then we don't need an initial charge
     }
     // Set the start_date to after the trial period ends
     $nvp_request['PROFILESTARTDATE'] = date(DATE_ATOM, strtotime("+ " . $recurring_schedule['trial_length'] . ' ' . ms_paypal_wpp_switch_unit($recurring_schedule['trial_unit'])));
-  }
-  else {
+  } else {
     // Set the regular amount as the initial amount to collect immediately
     $nvp_request['INITAMT'] = round($recurring_schedule['main_amount'], 2);
     // Set the start_date to 1 period in the future
@@ -2034,15 +2004,16 @@ function ms_paypal_wpp_setup_recurring_payment($order, $data, $recurring_schedul
   $nvp_response = ms_paypal_wpp_api_request($nvp_request, variable_get('ms_paypal_wpp_wpp_server', 'https://api-3t.sandbox.paypal.com/nvp'));
 
   switch ($nvp_response['ACK']) {
+    /** @noinspection PhpMissingBreakStatementInspection */
     case 'SuccessWithWarning':
       ms_core_log_error('ms_paypal_wpp', '<b>Recurring Profile Setup succeeded with a warning.</b>!paypal_message',
         array(
-        '!paypal_message' => _ms_paypal_wpp_build_error_messages($nvp_response),
-      ),
+          '!paypal_message' => _ms_paypal_wpp_build_error_messages($nvp_response),
+        ),
         WATCHDOG_WARNING,
         l(t('view order'), 'admin/moneyscripts/orders/view/' . $order->oid)
       );
-      // Fall through.
+    // Fall through.
     case 'Success':
       $nvp_details_request = array(
         'METHOD' => 'GetRecurringPaymentsProfileDetails',
@@ -2100,7 +2071,6 @@ function ms_paypal_wpp_setup_recurring_payment($order, $data, $recurring_schedul
  * Helper function to get the correct card type name
  */
 function ms_paypal_wpp_get_cc_type($type) {
-  $cc_type = '';
   switch (strtolower($type)) {
     case 'amex':
     case 'american express':

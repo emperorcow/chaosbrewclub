@@ -1,6 +1,6 @@
 name = Coupons
 description = Add Discount Coupons functionality
-version = "7.x-3.0-rc10"
+version = "7.x-3.1"
 core = 7.x
 package = MoneyScripts - Extra
 dependencies[] = ms_core

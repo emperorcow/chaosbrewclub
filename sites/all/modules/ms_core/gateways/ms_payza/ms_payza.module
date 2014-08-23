@@ -157,10 +157,10 @@ To setup the API, just follow these steps:<br />
     '#description' => t("Fill in the text you wish the user to see for the Jump page. They will be redirected in 5 seconds if Javascript is enabled, otherwise a button is provided for them to click."),
     '#required' => FALSE,
     '#default_value' => variable_get('ms_payza_jump_page_text',
-"Please wait for a few seconds, your registration is being processed and you will be redirected to Payza's secure payment page.
-<br/><br/>
-If you are not automatically redirected to the Payza payment page within 5 seconds, click below:
-<br/><br/>"),
+      "Please wait for a few seconds, your registration is being processed and you will be redirected to Payza's secure payment page.
+      <br/><br/>
+      If you are not automatically redirected to the Payza payment page within 5 seconds, click below:
+      <br/><br/>"),
   );
   $form['main']['ms_payza_jump_page_timeout'] = array(
     '#type' => 'textfield',
@@ -226,12 +226,10 @@ function ms_payza_ipn() {
 
     if ($order->oid) {
       ms_payza_process_ipn($ipn, $order);
-    }
-    else {
+    } else {
       ms_core_log_error('ms_payza', 'Error loading the order for a Payment IPN: !data', array('!data' => ms_core_print_r($ipn)));
     }
-  }
-  else {
+  } else {
     ms_core_log_error('ms_payza', 'Error: An IPN has Failed Validation. This may be from a spoofed IPN or an attempt to hack. Here are the details: Data: !data', array('!data' => ms_core_print_r($_REQUEST)));
   }
 }
@@ -242,8 +240,6 @@ function ms_payza_ipn() {
  * Verifies and preps the IPN vars
  */
 function ms_payza_ipn_handler($post_vars) {
-  $response = '';
-
   $ch = curl_init();
 
   $url = "https://www.payza.com/ipn2.ashx";
@@ -267,8 +263,7 @@ function ms_payza_ipn_handler($post_vars) {
     if (urldecode($response) == "INVALID TOKEN") {
       // The token is not valid
       return FALSE;
-    }
-    else {
+    } else {
       // urldecode the received response from Payza's IPN V2
       $response = urldecode($response);
 
@@ -300,9 +295,9 @@ function ms_payza_process_ipn($ipn, $order) {
   $payment->transaction = isset($ipn['ap_referencenumber']) ? $ipn['ap_referencenumber'] : drupal_get_token(serialize($ipn));
   $payment->amount = isset($ipn['ap_amount']) ? $ipn['ap_amount'] : 0;
   $payment->currency = $ipn['ap_currency'];
-  $payment->recurring_id = ($ipn['ap_subscriptionreferencenumber']) ? $ipn['ap_subscriptionreferencenumber'] : '';
-  $payment->data = $ipn;
-  $payment->recurring_schedule = array(
+
+  // Check that the currency and amount match the order.
+  $recurring_schedule = array(
     'total_occurrences' => ($ipn['ap_periodcount']) ? $ipn['ap_periodcount'] : 0,
     'main_amount' => $ipn['ap_amount'],
     'main_length' => $ipn['ap_periodlength'],
@@ -312,6 +307,16 @@ function ms_payza_process_ipn($ipn, $order) {
     'trial_length' => $ipn['ap_trialperiodlength'],
     'trial_unit' => $ipn['ap_trialtimeunit'],
   );
+  if (!ms_core_valid_payment($order, $payment->type, $recurring_schedule) || $payment->currency != $order->currency) {
+    drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+    ms_core_log_error('ms_payza', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+      array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($ipn)));
+    return FALSE;
+  }
+
+  $payment->recurring_id = ($ipn['ap_subscriptionreferencenumber']) ? $ipn['ap_subscriptionreferencenumber'] : '';
+  $payment->data = $ipn;
+
   // Update the address
   $payment->billing_address = array(
     'street' => $ipn['ap_custaddress'],
@@ -327,7 +332,7 @@ function ms_payza_process_ipn($ipn, $order) {
 
   // If this is a test transaction, we need to generate a transaction id that is unique
   if ($payment->transaction == 'TEST TRANSACTION') {
-    $payment->transaction == 'TEST_TRANSACTION-' . $order->oid;
+    $payment->transaction = 'TEST_TRANSACTION-' . $order->oid;
   }
 
   switch ($payment->type) {
@@ -338,18 +343,12 @@ function ms_payza_process_ipn($ipn, $order) {
       // If this is the first payment, log a rec_signup payment first
       if ($ipn['ap_subscriptionpaymentnumber'] == 1) {
         $payment->type = 'rec_signup';
-      }
-      else {
+      } else {
         $payment->type = 'rec_payment';
       }
 
       // Add the Payment to the Order
       $payment->amount = $ipn['ap_amount'];
-      ms_core_enter_payment($payment, FALSE);
-      break;
-
-    case 'rec_signup':
-      // Add the Payment to the Order
       ms_core_enter_payment($payment);
       break;
 
@@ -402,9 +401,9 @@ function ms_payza_cancel_page_submit($form, &$form_state) {
     $request = sprintf("USER=%s&PASSWORD=%s&SUBSCRIPTIONREFERENCE=%s&NOTE=%s&TESTMODE=%s",
       urlencode(variable_get('ms_payza_email', '')),
       urlencode(variable_get('ms_payza_api_password', '')),
-      urlencode((string) $subscription_id),
-      urlencode((string) $note),
-      urlencode((string) 0)
+      urlencode((string)$subscription_id),
+      urlencode((string)$note),
+      urlencode((string)0)
     );
 
     $ch = curl_init();
@@ -431,24 +430,21 @@ function ms_payza_cancel_page_submit($form, &$form_state) {
       // Generate a Unique Transaction ID
       $payment->transaction = drupal_get_token(serialize($order));
       $payment->currency = $order->currency;
-      $payment->recurring_schedule = $order->recurring_schedule;
       $payment->recurring_id = $result['REFERENCENUMBER'];
       $payment->billing_address = $order->billing_address;
       $payment->shipping_address = $order->shipping_address;
 
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       drupal_goto();
-    }
-    else {
+    } else {
       // Log the error
       ms_core_log_error('ms_payza', 'There was a problem cancelling the payments: @code - @error Order # !num',
         array('@code' => $result['RETURNCODE'], '@error' => $result['DESCRIPTION'], '!num' => $order->oid));
       drupal_set_message(t('There was a problem when trying to cancel this order. Please contact us for more help.'));
       drupal_goto();
     }
-  }
-  else {
+  } else {
     // Log the error
     ms_core_log_error('ms_payza', 'Unable to load the recurring_id for the order being canceled. Order # !num',
       array('!num' => $order->oid));
@@ -487,6 +483,7 @@ function ms_payza_ms_core_payment_gateway() {
     'checkout_path' => 'ms/checkout/payza',
     'cancel_url' => 'ms_payza_get_cancel_url',
     'settings' => ms_payza_admin(),
+    'hosted' => TRUE,
   );
 
   return $gateway;
@@ -675,16 +672,16 @@ function ms_payza_thankyou_page() {
   $output = '';
   $ajax_img = base_path() . drupal_get_path('module', 'ms_core') . '/images/ajax-bar-loader.gif';
   $output .= "<div style='text-align:center;width:100%;'>"
-   . t('Your order is being processed. Please allow up to 2 minutes for this process to complete.')
-   . "</div>";
+    . t('Your order is being processed. Please allow up to 2 minutes for this process to complete.')
+    . "</div>";
   $output .= "<div style='text-align:center;width:100%;'>"
-   . t('Thank you for your patience.')
-   . "</div>";
+    . t('Thank you for your patience.')
+    . "</div>";
 
   $output .= "<div class='ajax_loader' style='margin: 15px 0 0;clear:both;width:100%;text-align:center;'><img src='$ajax_img' alt='Loading' /></div>";
   $output .= "<div class='ms_payza_landing_click_here'>"
     . t('If you have waited for over one minute, please !click.',
-       array('!click' => l(t('click here'), 'ms/thankyou')))
+      array('!click' => l(t('click here'), 'ms/thankyou')))
     . "</div>";
   return $output;
 }
@@ -708,8 +705,7 @@ function ms_payza_ipn_ajax_page($unique_key) {
       array('!key' => $unique_key));
     $data['result'] = 'error';
     $data['error'] = t("There was an error loading the order. Please contact a site administrator.");
-  }
-  else {
+  } else {
     // Check if the payment has been recorded yet
     if (isset($_REQUEST['txn_id']) AND $txn_id = $_REQUEST['txn_id']) {
       $data['result'] = 'failure';
@@ -731,14 +727,12 @@ function ms_payza_ipn_ajax_page($unique_key) {
           }
         }
       }
-    }
-    else {
+    } else {
       if ($order->uid) {
         // The order has a user id and is ready to go
         $data['result'] = 'success';
         $data['status'] = 'Unable to determine status';
-      }
-      else {
+      } else {
         $data['result'] = 'failure';
       }
     }

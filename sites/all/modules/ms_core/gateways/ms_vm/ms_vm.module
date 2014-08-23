@@ -217,8 +217,7 @@ function ms_vm_checkout_form_validate($form, &$form_state) {
 
     // Add the Payment to the Order
     ms_core_enter_payment($payment);
-  }
-  else { // The Credit Card was not approved, set an error on the form
+  } else { // The Credit Card was not approved, set an error on the form
     form_set_error('ccnumber', $response['message']);
   }
 }
@@ -233,10 +232,9 @@ function ms_vm_checkout_form_submit($form, &$form_state) {
   if ($v['ms_order_charged']) {
     $order = ms_core_order_load($v['ms_oid']);
     $order->status = 'Completed';
-    $order = ms_core_order_save($order);
+    ms_core_order_save($order);
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -245,8 +243,6 @@ function ms_vm_checkout_form_submit($form, &$form_state) {
  * Process a payment through the Virtual Merchant gateway.
  */
 function ms_vm_charge($order, $amount, $data) {
-  global $user;
-
   // Prepare the parameters that we will submit to process the transaction.
   $param = array(
     // Transaction information.
@@ -318,8 +314,7 @@ function ms_vm_charge($order, $amount, $data) {
   // Set the proper URL based on the transaction mode.
   if (variable_get('ms_vm_transaction_mode', 'test') == 'demo') {
     $url = 'https://demo.myvirtualmerchant.com/VirtualMerchantDemo/process.do';
-  }
-  else {
+  } else {
     $url = 'https://www.myvirtualmerchant.com/VirtualMerchant/process.do';
   }
 
@@ -376,8 +371,7 @@ function ms_vm_charge($order, $amount, $data) {
     ms_core_log_error('ms_vm', 'Credit card payment declined: !response',
       array('!response' => check_plain(ms_core_print_r($result))));
     return $response;
-  }
-  else {
+  } else {
     // Build a message for display and comments in the payments table.
     $message = t('Type: @type<br />ID: @id',
       array('@type' => ms_vm_txn_type_text($data['txn_type']), '@id' => $result['ssl_txn_id']));
@@ -387,12 +381,12 @@ function ms_vm_charge($order, $amount, $data) {
     // Build an admin order comment.
     $comment = t('<b>@type</b><br /><b>@status:</b> @code<br /><b>Amount:</b> @amount<br /><b>AVS response:</b> @avs',
       array(
-      '@type' => ms_vm_txn_type_text($data['txn_type']),
-      '@status' => $result['ssl_result'] == '0' ? t('Accepted') : t('Rejected'),
-      '@code' => $result['ssl_approval_code'],
-      '@amount' => ms_core_format_money($result['ssl_amount'], $order->currency),
-      '@avs' => ms_vm_avs_response_text($result['ssl_avs_response']),
-    ));
+        '@type' => ms_vm_txn_type_text($data['txn_type']),
+        '@status' => $result['ssl_result'] == '0' ? t('Accepted') : t('Rejected'),
+        '@code' => $result['ssl_approval_code'],
+        '@amount' => ms_core_format_money($result['ssl_amount'], $order->currency),
+        '@avs' => ms_vm_avs_response_text($result['ssl_avs_response']),
+      ));
 
     // Add the CVV response
     $comment .= '<br />' . t('<b>CVV match:</b> @cvv', array('@cvv' => ms_vm_cvv_response_text($result['ssl_cvv2_response'])));

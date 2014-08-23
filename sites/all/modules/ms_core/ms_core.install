@@ -14,8 +14,8 @@ function ms_core_install() {
 function ms_core_uninstall() {
   // Delete related variables all at once.
   db_delete('variable')
-  ->condition('name', 'ms_core_%%', 'LIKE')
-  ->execute();
+    ->condition('name', 'ms_core_%%', 'LIKE')
+    ->execute();
 }
 
 /**
@@ -29,7 +29,6 @@ function ms_core_schema() {
         'type' => 'serial',
         'description' => 'The unique Order ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'uid' => array(
         'type' => 'int',
@@ -88,13 +87,6 @@ function ms_core_schema() {
         'length' => '32',
         'not null' => TRUE,
         'default' => '',
-      ),
-      'secured' => array(
-        'type' => 'int',
-        'description' => 'Is the order secured?',
-        'disp_width' => '11',
-        'not null' => TRUE,
-        'default' => 0,
       ),
       'recurring_schedule' => array(
         'type' => 'text',
@@ -223,7 +215,6 @@ function ms_core_schema() {
         'type' => 'serial',
         'description' => 'The unique ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'oid' => array(
         'description' => 'The order ID.',
@@ -231,6 +222,12 @@ function ms_core_schema() {
         'unsigned' => TRUE,
         'not null' => TRUE,
         'default' => 0,
+      ),
+      'pid' => array(
+        'description' => 'The product ID.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
       ),
       'status' => array(
         'type' => 'varchar',
@@ -264,7 +261,6 @@ function ms_core_schema() {
         'type' => 'int',
         'description' => 'The Regular Period Length',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'main_unit' => array(
         'type' => 'varchar',
@@ -282,7 +278,6 @@ function ms_core_schema() {
         'type' => 'int',
         'description' => 'The Trial Period Length',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'trial_unit' => array(
         'type' => 'varchar',
@@ -293,7 +288,6 @@ function ms_core_schema() {
         'type' => 'int',
         'description' => 'The Number of Payments',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'next_payment' => array(
         'type' => 'int',
@@ -708,7 +702,6 @@ function ms_core_schema() {
         'type' => 'serial',
         'description' => 'The unique Payment ID (primary)',
         'not null' => TRUE,
-        'disp-width' => '11',
       ),
       'oid' => array(
         'type' => 'int',
@@ -756,11 +749,6 @@ function ms_core_schema() {
       'data' => array(
         'type' => 'text',
         'description' => 'The data that is stored with the payment from the gateway',
-        'serialize' => TRUE,
-      ),
-      'recurring_schedule' => array(
-        'type' => 'text',
-        'description' => 'Serialized Array of the recurring schedule',
         'serialize' => TRUE,
       ),
       'created' => array(
@@ -969,6 +957,13 @@ function ms_core_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
+      'notified' => array(
+        'description' => t('Whether the payment notification has been sent.'),
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
     ),
     'indexes' => array(
       'uid' => array('uid'),
@@ -1041,8 +1036,8 @@ function ms_core_update_7102(&$sandbox) {
       $key = ms_core_generate_order_key();
       db_update('ms_orders')
         ->fields(array(
-        'order_key' => $key,
-      ))
+          'order_key' => $key,
+        ))
         ->condition('oid', $row->oid)
         ->execute();
     }
@@ -1082,7 +1077,6 @@ function ms_core_update_7103(&$sandbox) {
     // Populate the first_name and last_name and email_address of existing orders
     $result = db_query("SELECT * FROM {ms_orders}");
     foreach ($result as $row) {
-      $first_name = '';
       $last_name = '';
       $email = '';
 
@@ -1101,10 +1095,10 @@ function ms_core_update_7103(&$sandbox) {
 
       db_update('ms_orders')
         ->fields(array(
-        'first_name' => $first_name,
-        'last_name' => $last_name,
-        'email_address' => $email,
-      ))
+          'first_name' => $first_name,
+          'last_name' => $last_name,
+          'email_address' => $email,
+        ))
         ->condition('oid', $row->oid)
         ->execute();
     }
@@ -1137,8 +1131,8 @@ function ms_core_update_7105(&$sandbox) {
 
     db_update('ms_recurring_schedules')
       ->fields(array(
-      'notified' => 1,
-    ))
+        'notified' => 1,
+      ))
       ->execute();
   }
 
@@ -1168,7 +1162,7 @@ function ms_core_update_7107(&$sandbox) {
       }
     }
 
-    if ($public_key) {
+    if (!empty($public_key)) {
       $rec_data = xmlrpc('http://www.moneyscripts.net/xmlrpc.php', array(
         'moneyscripts.get_core_keys' => array($public_key),
       ));
@@ -1258,11 +1252,22 @@ function ms_core_update_7204(&$sandbox) {
  */
 function ms_core_update_7205(&$sandbox) {
   $result = db_query("SELECT * FROM {role_permission} WHERE permission = :perm", array(':perm' => 'access content'));
-  $perms = array('access checkout page');
 
   foreach ($result as $row) {
-    user_role_grant_permissions($row->rid, $perms);
+    db_merge('role_permission')
+      ->key(array(
+        'rid' => $row->rid,
+        'permission' => 'access checkout page',
+      ))
+      ->fields(array(
+        'module' => 'ms_core',
+      ))
+      ->execute();
   }
+
+  // Clear the user access cache.
+  drupal_static_reset('user_access');
+  drupal_static_reset('user_role_permissions');
 
   return t('Updated permissions to access checkout page.');
 }
@@ -1416,22 +1421,93 @@ function ms_core_update_7303(&$sandbox) {
 function ms_core_update_7304(&$sandbox) {
   db_update('ms_payments')
     ->fields(array(
-    'type' => 'refund',
-  ))
+      'type' => 'refund',
+    ))
     ->condition('type', 'rec_refund')
     ->execute();
   db_update('ms_payments')
     ->fields(array(
-    'type' => 'failed',
-  ))
+      'type' => 'failed',
+    ))
     ->condition('type', 'rec_failed')
     ->execute();
   db_update('ms_payments')
     ->fields(array(
-    'type' => 'reversal',
-  ))
+      'type' => 'reversal',
+    ))
     ->condition('type', 'rec_reversal')
     ->execute();
+}
+
+/**
+ * Add the pid field to ms_recurring_schedules table.
+ */
+function ms_core_update_7305(&$sandbox) {
+  if (!db_field_exists('ms_recurring_schedules', 'pid')) {
+    db_add_field('ms_recurring_schedules', 'pid', array(
+      'description' => 'The product ID.',
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => FALSE,
+    ));
+  }
+
+  return t('Added the pid field to the ms_recurring_schedules table.');
+}
+
+/**
+ * Remove the recurring_schedule and secured fields.
+ */
+function ms_core_update_7306(&$sandbox) {
+  if (db_field_exists('ms_payments', 'recurring_schedule')) {
+    db_drop_field('ms_payments', 'recurring_schedule');
+  }
+  if (db_field_exists('ms_orders', 'secured')) {
+    db_drop_field('ms_orders', 'secured');
+  }
+
+  return t('Removed the recurring_schedule and secured fields.');
+}
+
+/**
+ * Remove duplicate recurring_schedule records.
+ *
+ * Due to a bug in the new multi_recurring feature, there is a chance there could be duplicate recurring_schedule
+ * records for recurring orders. We remove any duplicates here.
+ */
+function ms_core_update_7307(&$sandbox) {
+  $result = db_query("SELECT * FROM {ms_recurring_schedules} a
+INNER JOIN (SELECT oid FROM {ms_recurring_schedules}
+GROUP BY oid HAVING count(id) > 1) dup ON a.oid = dup.oid WHERE a.status = :status", array(':status' => 'active'));
+
+  $all = array();
+  foreach ($result as $row) {
+    $all[$row->oid][$row->id] = $row;
+  }
+  foreach ($all as $records) {
+    array_pop($records);
+    foreach ($records as $row) {
+      db_update('ms_recurring_schedules')
+        ->fields(array(
+          'status' => 'inactive',
+        ))
+        ->condition('id', $row->id)
+        ->execute();
+    }
+  }
+}
+
+/**
+ * Add a notified field for payment profiles.
+ */
+function ms_core_update_7308(&$sandbox) {
+  db_add_field('ms_core_payment_profiles', 'notified', array(
+    'description' => t('Whether the payment notification has been sent.'),
+    'type' => 'int',
+    'unsigned' => TRUE,
+    'not null' => TRUE,
+    'default' => 0,
+  ));
 }
 
 /**
@@ -1444,7 +1520,9 @@ function _ms_core_import_countries_regions() {
   foreach ($countries as $raw_values) {
     $map = array('name', 'iso', 'numcode', 'currency');
     $country = array_combine($map, $raw_values);
-    drupal_write_record('ms_core_countries', $country);
+    db_insert('ms_core_countries')
+      ->fields($country)
+      ->execute();
   }
 
   module_load_include('inc', 'ms_core', 'ms_core.regions');
@@ -1453,6 +1531,116 @@ function _ms_core_import_countries_regions() {
   foreach ($regions as $raw_values) {
     $map = array('name', 'code', 'numcode');
     $region = array_combine($map, $raw_values);
-    drupal_write_record('ms_core_regions', $region);
+    db_insert('ms_core_regions')
+      ->fields($region)
+      ->execute();
+  }
+}
+
+/**
+ * Make sure there aren't any old tokens from Drupal 6.
+ */
+function ms_core_update_7309(&$sandbox) {
+  if (function_exists('token_update_token_text')) {
+    $replacements = array(
+      'userName' => 'user:name',
+    );
+    $variables = array();
+    $messages = array();
+
+    $settings_functions = module_invoke_all('ms_core_overrides');
+
+    if (is_array($settings_functions) && !empty($settings_functions)) {
+      foreach ($settings_functions as $module => $info) {
+        if (function_exists($module . '_token_info')) {
+          $tokens_info = call_user_func($module . '_token_info');
+
+          foreach ($tokens_info['tokens'] as $type => $tokens) {
+            foreach ($tokens as $token_key => $token_info) {
+              $replacements[$token_key] = $type . ':' . $token_key;
+            }
+          }
+        }
+
+        $t_form_state = form_state_defaults();
+        if (!empty($info['params'])) {
+          $t_form_state['build_info']['args'] = $info['params'];
+        }
+        $module_form = drupal_retrieve_form($info['form'], $t_form_state);
+
+        $settings = array();
+        _ms_core_extract_token_variables($module_form, $settings);
+
+        if (!empty($settings)) {
+          foreach ($settings as $key => $element) {
+            $variables[] = $key;
+          }
+        }
+      }
+    }
+
+    $variables_count = 0;
+
+    foreach ($variables as $variable) {
+      if ($string = variable_get($variable, '')) {
+        $new_string = token_update_token_text($string, $replacements);
+        if ($new_string != $string) {
+          variable_set($variable, $new_string);
+          $variables_count += 1;
+        }
+      }
+    }
+
+    $messages[] = t('Updated tokens in @count variables.', array('@count' => $variables_count));
+
+    // Now we need to update all of the overridden settings in the orders.
+    $result = db_select('ms_orders', 'o')
+      ->fields('o')
+      ->execute();
+
+    $orders_count = 0;
+    foreach ($result as $order) {
+      $order->data = unserialize($order->data);
+      $changed = FALSE;
+      if (!empty($order->data['override_settings'])) {
+        foreach ($order->data['override_settings'] as $key => &$string) {
+          if (in_array($key, $variables)) {
+            $new_string = token_update_token_text($string, $replacements);
+            if ($new_string != $string) {
+              $string = $new_string;
+              $changed = TRUE;
+            }
+          }
+        }
+      }
+
+      if ($changed) {
+        db_update('ms_orders')
+          ->fields(array(
+            'data' => $order->data,
+          ))
+          ->condition('oid', $order->oid)
+          ->execute();
+        $orders_count += 1;
+      }
+    }
+
+    $messages[] = t('Updated tokens in override settings of @count orders.', array('@count' => $orders_count));
+
+    return implode('<br />', $messages);
+  } else {
+    throw new DrupalUpdateException('There was an error updating the tokens. You may need to perform the update manually.');
+  }
+}
+
+/**
+ * Recursively extracts the textarea form elements.
+ */
+function _ms_core_extract_token_variables($parent, &$settings) {
+  foreach (element_children($parent) as $child_name) {
+    if (!empty($parent[$child_name]['#type']) && $parent[$child_name]['#type'] == 'textarea') {
+      $settings[$child_name] = $parent[$child_name];
+    }
+    _ms_core_extract_token_variables($parent[$child_name], $settings);
   }
 }

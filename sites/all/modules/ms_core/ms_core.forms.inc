@@ -20,12 +20,13 @@
  * @see ms_core_order_form_submit()
  */
 function ms_core_order_form($form, &$form_state, $action = 'add', $order = NULL) {
-  drupal_add_library('system','ui.datepicker');
+  drupal_add_library('system', 'ui.datepicker');
   drupal_add_js('jQuery(document).ready(function(){jQuery( ".pickadate" ).datepicker({
       dateFormat: "mm/dd/yy",
       autoSize: true
     });});', 'inline');
   $is_edit = FALSE;
+  $account = NULL;
   $form['order'] = array(
     '#type' => 'fieldset',
     '#title' => t('Order', array(), array('context' => 'ms_core')),
@@ -112,9 +113,9 @@ function ms_core_order_form($form, &$form_state, $action = 'add', $order = NULL)
 
       // Display details about the payment.
       $headers = array(array(
-          'data' => t('Payment Details'),
-          'colspan' => 2,
-        ));
+        'data' => t('Payment Details'),
+        'colspan' => 2,
+      ));
       $rows = array();
       $rows[] = array(t('Actions'), implode(' | ', $payment_actions));
       $rows[] = array(t('Amount'), ms_core_format_money($payment->amount, $payment->currency, 'payment_amount'));
@@ -149,7 +150,6 @@ function ms_core_order_form($form, &$form_state, $action = 'add', $order = NULL)
     );
   }
 
-  $today = REQUEST_TIME;
   $form['order']['created'] = array(
     '#type' => 'textfield',
     '#title' => t('Date Created'),
@@ -239,6 +239,13 @@ function ms_core_order_form($form, &$form_state, $action = 'add', $order = NULL)
     '#size' => 32,
     '#maxlength' => 64,
     '#default_value' => ($is_edit) ? $order->billing_address['street'] : '',
+  );
+  $form['order']['billing_address']['billing_street2'] = array(
+    '#type' => 'textfield',
+    '#title' => variable_get('ms_checkout_form_billing_address2_title', t('Street 2')),
+    '#size' => 32,
+    '#maxlength' => 64,
+    '#default_value' => ($is_edit) ? $order->billing_address['street2'] : '',
   );
   $form['order']['billing_address']['billing_city'] = array(
     '#type' => 'textfield',
@@ -331,17 +338,18 @@ function ms_core_order_form($form, &$form_state, $action = 'add', $order = NULL)
     '#default_value' => ($is_edit) ? $order->shipping_address['phone'] : '',
   );
 
-  // Show the recurring schedule edit fprm if applicable.
-  if ($is_edit AND $order->order_type == 'recurring' AND $gateway = ms_core_get_payment_gateway($order->gateway) AND !empty($gateway['recurring_schedule_support']) AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid)) {
+  // Show the recurring schedule edit form if applicable.
+  if ($is_edit && $order->order_type == 'recurring' && ($gateway = ms_core_get_payment_gateway($order->gateway)) && !empty($gateway['recurring_schedule_support']) && ($recurring_schedule = ms_core_load_recurring_schedule($order->oid))) {
+    // TODO - Select all recurring schedules in the case of multi_recurring and show a form for each.
     $form['order']['recurring_schedule'] = array(
       '#tree' => TRUE,
       '#type' => 'fieldset',
       '#title' => t('Recurring Schedule'),
       '#collapsible' => TRUE,
       '#collapsed' => TRUE,
-      '#description' => t("Here you can view and edit the recurring schedule for
+      '#description' => t("Here you can view && edit the recurring schedule for
         this order. Changing these values will change when the user is billed
-        next, and for how much and how long. Be very careful about changing these
+        next, && for how much && how long. Be very careful about changing these
         values!")
     );
     $form['order']['recurring_schedule']['change_recurring_schedule'] = array(
@@ -385,8 +393,7 @@ function ms_core_order_form($form, &$form_state, $action = 'add', $order = NULL)
         ),
         '#default_value' => $recurring_schedule->main_unit,
       );
-    }
-    else {
+    } else {
       $form['order']['recurring_schedule']['main_unit'] = array(
         '#type' => 'textfield',
         '#title' => t('Regular period unit'),
@@ -489,7 +496,7 @@ function ms_core_order_form_submit($form, &$form_state) {
   // Handle the Updating or Inserting of an order.
   $v = $form_state['values'];
 
-  if (isset($v['oid']) AND $order = ms_core_order_load($v['oid'])) {
+  if (isset($v['oid']) && ($order = ms_core_order_load($v['oid']))) {
     $account = user_load_by_name($v['username']);
 
     // Update the values.
@@ -504,6 +511,7 @@ function ms_core_order_form_submit($form, &$form_state) {
     $order->uid = ($account) ? $account->uid : 0;
     $order->billing_address = array(
       'street' => trim($v['billing_street']),
+      'street2' => trim($v['billing_street2']),
       'city' => trim($v['billing_city']),
       'state' => trim($v['billing_state']),
       'zip' => trim($v['billing_zip']),
@@ -512,6 +520,7 @@ function ms_core_order_form_submit($form, &$form_state) {
     );
     $order->shipping_address = array(
       'street' => trim($v['shipping_street']),
+      'street2' => trim($v['shipping_street2']),
       'city' => trim($v['shipping_city']),
       'state' => trim($v['shipping_state']),
       'zip' => trim($v['shipping_zip']),
@@ -520,9 +529,9 @@ function ms_core_order_form_submit($form, &$form_state) {
     );
 
     // Save the recurring schedule.
-    if (!empty($v['recurring_schedule']['change_recurring_schedule']) AND $recurring_schedule = ms_core_load_recurring_schedule($order->oid)) {
+    if (!empty($v['recurring_schedule']['change_recurring_schedule']) && ($recurring_schedule = ms_core_load_recurring_schedule($order->oid))) {
       // Merge in the values.
-      $recurring_schedule = (object) array_merge((array) $recurring_schedule, $v['recurring_schedule']);
+      $recurring_schedule = (object)array_merge((array)$recurring_schedule, $v['recurring_schedule']);
       $recurring_schedule->next_payment = strtotime($recurring_schedule->next_payment);
       $recurring_schedule->created = strtotime($recurring_schedule->created);
       $recurring_schedule->expiration = strtotime($recurring_schedule->expiration);
@@ -533,8 +542,7 @@ function ms_core_order_form_submit($form, &$form_state) {
     if (ms_core_order_save($order)) {
       drupal_set_message(t('Order @num saved.', array('@num' => $order->order_number)));
     }
-  }
-  else {
+  } else {
     // Create a new order.
     $account = user_load_by_name($v['username']);
     $order = ms_core_order_new($v['order_type'], ($account) ? $account->uid : 0);
@@ -550,6 +558,7 @@ function ms_core_order_form_submit($form, &$form_state) {
     $order->email_address = $v['email_address'];
     $order->billing_address = array(
       'street' => trim($v['billing_street']),
+      'street2' => trim($v['billing_street2']),
       'city' => trim($v['billing_city']),
       'state' => trim($v['billing_state']),
       'zip' => trim($v['billing_zip']),
@@ -558,6 +567,7 @@ function ms_core_order_form_submit($form, &$form_state) {
     );
     $order->shipping_address = array(
       'street' => trim($v['shipping_street']),
+      'street2' => trim($v['shipping_street2']),
       'city' => trim($v['shipping_city']),
       'state' => trim($v['shipping_state']),
       'zip' => trim($v['shipping_zip']),
@@ -674,12 +684,12 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
   $form['#action'] = url('ms/checkout');
 
   // Add the User Registration form.
-  if (!$user->uid AND !$cart->data['skip_registration']) {
+  if (!$user->uid && empty($cart->data['skip_registration'])) {
     $required = variable_get('ms_core_checkout_require_account_info', 'optional') == 'required';
     $form['outer_wrapper']['information'] = array(
       '#type' => 'fieldset',
       '#title' => t('Customer Information'),
-      '#description' => t('Enter a valid email address for this order or !click to login with an existing account and return to checkout.',
+      '#description' => t('Enter a valid email address for this order or !click to login with an existing account && return to checkout.',
         array('!click' => l(t('click here'), 'user/login', array('query' => drupal_get_destination())))),
       '#collapsible' => FALSE,
       '#collapsed' => FALSE,
@@ -688,7 +698,7 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
       '#type' => 'textfield',
       '#title' => t('E-mail Address'),
       '#size' => 32,
-      '#description' => t('A valid e-mail address. All e-mails from the system will be sent to this address. The e-mail address is not made public and will only be used if you wish to receive a new password or wish to receive certain news or notifications by e-mail.'),
+      '#description' => t('A valid e-mail address. All e-mails from the system will be sent to this address. The e-mail address is not made public && will only be used if you wish to receive a new password or wish to receive certain news or notifications by e-mail.'),
       '#required' => TRUE,
     );
     if (variable_get('ms_core_checkout_email_verify', TRUE)) {
@@ -732,8 +742,6 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
     }
     // Add Profile 2 Fields if set.
     if (variable_get('ms_core_profile2_checkout_integration', FALSE) && module_exists('profile2')) {
-      $form['#submit'][] = 'ms_core_checkout_form_submit';
-      $form['#validate'][] = 'ms_core_checkout_form_validate';
       foreach (profile2_get_types() as $type_name => $profile_type) {
         if (!empty($profile_type->data['registration'])) {
           if (empty($form_state['profiles'][$type_name])) {
@@ -745,6 +753,21 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
             '#type' => 'fieldset',
             '#title' => check_plain($profile_type->getTranslation('label')),
           );
+        }
+      }
+    }
+    if (variable_get('ms_core_user_fields_checkout_integration', FALSE)) {
+      // @todo - Figure out why this breaks if fields which aren't included on the registration form don't have default values set...
+      $form['#user'] = drupal_anonymous_user();
+      $form['#user_category'] = 'register';
+
+      // Attach field widgets, and hide the ones where the 'user_register_form'
+      // setting is not on.
+      $langcode = entity_language('user', $form['#user']);
+      field_attach_form('user', $form['#user'], $form, $form_state, $langcode);
+      foreach (field_info_instances('user', 'user') as $field_name => $instance) {
+        if (empty($instance['settings']['user_register_form'])) {
+          $form[$field_name]['#access'] = FALSE;
         }
       }
     }
@@ -776,19 +799,15 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
         'shipping_country' => trim($varst['country']),
         'shipping_phone' => trim($varst['phone']),
       );
-    }
-    elseif ($cart->uid && $account = user_load($cart->uid)) {
+    } elseif ($cart->uid && ($account = user_load($cart->uid))) {
       // Load the account from the order.
-      $vars = (array) $account;
-    }
-    elseif (!empty($cart->data['register_form'])) {
-      // Get the address and email from the registration form.
+      $vars = (array)$account;
+    } elseif (!empty($cart->data['register_form'])) {
+      // Get the address && email from the registration form.
       $vars = $cart->data['register_form'];
-    }
-    elseif (!empty($cart->data['form']['mail'])) {
+    } elseif (!empty($cart->data['form']['mail'])) {
       $vars = $cart->data['form'];
-    }
-    elseif (!empty($cart->data['form']['values']['mail'])) {
+    } elseif (!empty($cart->data['form']['values']['mail'])) {
       $vars = $cart->data['form']['values'];
     }
 
@@ -840,8 +859,7 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
                   'effect' => 'fade',
                 );
               }
-            }
-            else {
+            } else {
               // Hide the state field.
               $form['outer_wrapper']['shipping'][$field] = array(
                 '#type' => 'value',
@@ -852,8 +870,7 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
             }
             break;
         }
-      }
-      else {
+      } else {
         $form['outer_wrapper']['shipping'][$field] = array(
           '#type' => 'value',
           '#value' => ms_core_get_form_field_default(variable_get('ms_core_profile_' . $field, $data['profile']), $vars),
@@ -864,19 +881,16 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
     // Call the hooks if applicable.
     if (!empty($form_state['input']['shipping_country']) && !empty($form_state['input']['_triggering_element_name']) && $form_state['input']['_triggering_element_name'] == 'shipping_country') {
       module_invoke_all('ms_core_checkout_country_changed', $cart, $form_state['input']['shipping_country']);
-    }
-    elseif (!empty($form['outer_wrapper']['shipping']['shipping_country']['#default_value'])) {
+    } elseif (!empty($form['outer_wrapper']['shipping']['shipping_country']['#default_value'])) {
       module_invoke_all('ms_core_checkout_country_changed', $cart, $form['outer_wrapper']['shipping']['shipping_country']['#default_value']);
     }
     if (!empty($form_state['input']['shipping_state'])) {
       if (!empty($form_state['input']['_triggering_element_name']) && $form_state['input']['_triggering_element_name'] == 'shipping_state') {
         module_invoke_all('ms_core_checkout_region_changed', $cart, $form_state['input']['shipping_state']);
-      }
-      else {
+      } else {
         module_invoke_all('ms_core_checkout_region_changed', $cart, key($form['outer_wrapper']['shipping']['shipping_state']['#options']));
       }
-    }
-    else {
+    } else {
       $state = !empty($form['outer_wrapper']['shipping']['shipping_state']['#default_value']) ? $form['outer_wrapper']['shipping']['shipping_state']['#default_value'] : key($form['outer_wrapper']['shipping']['shipping_state']['#options']);
       if ($state) {
         module_invoke_all('ms_core_checkout_region_changed', $cart, $state);
@@ -887,8 +901,9 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
   // Let other modules modify the form if needed, to add AJAX callbacks.
   drupal_alter('ms_core_checkout_form', $form, $form_state, $cart);
 
-  if (!(variable_get('ms_core_terms_service_hide_for_authenticated', FALSE) AND $user->uid)
-    AND variable_get('ms_core_terms_service_nid', '') AND $node = node_load(variable_get('ms_core_terms_service_nid', ''))) {
+  if (!(variable_get('ms_core_terms_service_hide_for_authenticated', FALSE) && $user->uid)
+    && variable_get('ms_core_terms_service_nid', '') && $node = node_load(variable_get('ms_core_terms_service_nid', ''))
+  ) {
     $form['outer_wrapper']['terms_of_service'] = array(
       '#type' => 'fieldset',
     );
@@ -913,7 +928,7 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
 
   $form['actions'] = array('#type' => 'actions');
 
-  if ($cart->amount == 0 AND !$cart->recurring_schedule['has_trial']) {
+  if ($cart->amount == 0 && !$cart->recurring_schedule['has_trial']) {
     // Put the Free Button here.
     $form['actions']['submit'] = array(
       '#type' => 'submit',
@@ -922,8 +937,7 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
       '#prefix' => "<div class='ms_cart_right'>",
       '#suffix' => "</div>",
     );
-  }
-  else {
+  } else {
     // Get the Payment Gateways.
     $gateways = ms_core_get_checkout_payment_gateways($cart->order_type, $cart->data['blocked_gateways']);
     // Allow other modules to alter the gateways.
@@ -950,16 +964,14 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
             '#default_value' => variable_get('ms_core_default_gateway', key($gateway_options)),
             '#required' => TRUE,
           );
-        }
-        else {
+        } else {
           $form['gateway'] = array(
             '#type' => 'value',
             '#value' => key($gateway_options),
             '#required' => TRUE,
           );
         }
-      }
-      else {
+      } else {
         $form['gateway'] = array(
           '#type' => 'item',
           '#markup' => t('No Payment Gateways are enabled which are compatible with this order. Please check your settings.'),
@@ -973,8 +985,7 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
         '#prefix' => "<div class='ms_cart_right'>",
         '#suffix' => "</div>",
       );
-    }
-    else {
+    } else {
       // There are no gateways installed.
       $form['gateways'] = array(
         '#type' => 'fieldset',
@@ -997,8 +1008,8 @@ function ms_core_checkout_form($form, &$form_state, $cart) {
   }
 
   $form['actions']['cancel'] = array(
-    '#type'   => 'submit',
-    '#value'  => t('Back to Shopping'),
+    '#type' => 'submit',
+    '#value' => t('Back to Shopping'),
     '#submit' => array('ms_core_checkout_cancel_button'),
     '#limit_validation_errors' => array(),
     '#prefix' => "<div class='ms_cart_left'>",
@@ -1026,7 +1037,7 @@ function ms_core_checkout_cancel_button($form, &$form_state) {
 function ms_core_checkout_form_validate($form, &$form_state) {
   $v = $form_state['values'];
 
-  if (isset($v['email1']) AND $v['email1']) {
+  if (isset($v['email1']) && $v['email1']) {
     // Verify Email Address is real.
     if (!valid_email_address($v['email1'])) {
       form_set_error('email1', t('Please enter a valid email address'));
@@ -1041,12 +1052,12 @@ function ms_core_checkout_form_validate($form, &$form_state) {
     if ($email_account = user_load_by_mail($v['email1']) && !variable_get('ms_core_allow_anonymous_email_checkout', FALSE)) {
       form_set_error('email1', t('The email address you entered is already being used by an account on this site.
       Please !login to the account associated with this email address before proceeding.',
-      array('!login' => l(t('log in'), 'user/login', array('query' => drupal_get_destination())))
+        array('!login' => l(t('log in'), 'user/login', array('query' => drupal_get_destination())))
       ));
     }
     if (variable_get('ms_core_checkout_require_account_info', 'optional') != 'hidden') {
       // Verify Username is not being used.
-      if ($v['username'] AND $name_account = user_load_by_name($v['username'])) {
+      if ($v['username'] && ($name_account = user_load_by_name($v['username']))) {
         form_set_error('username', t('The username you specified is already in use. Please choose a different username before proceeding.'));
       }
       // Verify Passwords Match.
@@ -1074,10 +1085,9 @@ function ms_core_checkout_form_submit($form, &$form_state) {
     rules_invoke_event('ms_core_event_gateway_checkout');
   }
 
-  if (isset($v['oid']) && $order = ms_core_order_load($v['oid'])) {
+  if (isset($v['oid']) && ($order = ms_core_order_load($v['oid']))) {
     ms_core_set_order_session($order);
-  }
-  else {
+  } else {
     // Save the order.
     $order = ms_core_cart_to_order($data);
   }
@@ -1099,7 +1109,7 @@ function ms_core_checkout_form_submit($form, &$form_state) {
   }
 
   // Set the order user id if needed
-  if (variable_get('ms_core_allow_anonymous_email_checkout', FALSE) && $email_account = user_load_by_mail($v['email1'])) {
+  if (variable_get('ms_core_allow_anonymous_email_checkout', FALSE) && !empty($v['email1']) && ($email_account = user_load_by_mail($v['email1']))) {
     $order->uid = $email_account->uid;
     $order->data['disable_auto_login'] = TRUE;
     $order->save();
@@ -1107,11 +1117,13 @@ function ms_core_checkout_form_submit($form, &$form_state) {
 
   // If we used profile 2 fields on the checkout form, then the user needs to
   // be created first thing.
-  if (!$order->uid && !$user->uid && !$order->data['skip_registration'] && variable_get('ms_core_profile2_checkout_integration', FALSE) && module_exists('profile2')) {
+  if (!$order->uid && !$user->uid && empty($order->data['skip_registration']) && ((variable_get('ms_core_profile2_checkout_integration', FALSE) && module_exists('profile2')) || variable_get('ms_core_user_fields_checkout_integration', FALSE))) {
     // Register the User once they have paid.
     $pass = !empty($v['password1']) ? $v['password1'] : user_password();
     $name = !empty($v['username']) ? $v['username'] : ms_core_create_username($v['email1']);
     $roles = array();
+
+    global $language;
 
     $account = user_save('', array_merge($v, array(
       'name' => $name,
@@ -1119,6 +1131,7 @@ function ms_core_checkout_form_submit($form, &$form_state) {
       'init' => $v['email1'],
       'pass' => $pass,
       'roles' => $roles,
+      'language' => $language->language,
       'status' => 1,
     )));
 
@@ -1136,7 +1149,7 @@ function ms_core_checkout_form_submit($form, &$form_state) {
 
   ms_core_set_order_session($order);
 
-  if ($order->amount == 0 AND !$order->recurring_schedule['has_trial']) {
+  if ($order->amount == 0 && !$order->recurring_schedule['has_trial']) {
     // Change recurring orders to non-recurring.
     $order->order_type = 'cart';
 
@@ -1148,17 +1161,16 @@ function ms_core_checkout_form_submit($form, &$form_state) {
     $payment->currency = $order->currency;
 
     // Enter a payment for 0.
-    ms_core_enter_payment($payment, FALSE);
+    ms_core_enter_payment($payment);
 
     // Redirect to the Gateway Payment Page.
     $form_state['redirect'] = 'ms/thankyou';
-  }
-  else {
+  } else {
     $gateway = ms_core_get_payment_gateway($v['gateway']);
     $_SESSION['ms_gateway'] = $v['gateway'];
 
     // Convert currency here if needed.
-    if (!empty($gateway['currency']) AND !in_array($order->currency, $gateway['currency'])) {
+    if (!empty($gateway['currency']) && !in_array($order->currency, $gateway['currency'])) {
       $default_currency = ms_core_variable_get('ms_core_default_currency', 'USD', $order);
       if (!in_array($default_currency, $gateway['currency'])) {
         $default_currency = $gateway['currency'][0];
@@ -1183,8 +1195,7 @@ function ms_core_checkout_form_submit($form, &$form_state) {
     // Redirect to the Gateway Payment Page.
     if (!empty($gateway['checkout_path'])) {
       $form_state['redirect'] = $gateway['checkout_path'];
-    }
-    else {
+    } else {
       $form_state['redirect'] = 'ms/checkout/payment/' . $gateway['module'];
     }
   }
@@ -1194,7 +1205,7 @@ function ms_core_checkout_form_submit($form, &$form_state) {
  * AJAX Callback: Returns the checkout form after ajax element triggered.
  */
 function ms_core_checkout_ajax_callback($form, $form_state) {
-  return $form['outer_wrapper'];
+  return ms_core_checkout_page();
 }
 
 /**
@@ -1300,8 +1311,8 @@ function ms_core_resubmit_payment_confirm($form, &$form_state, $payment) {
 function ms_core_resubmit_payment_confirm_submit($form, &$form_state) {
   $payment = ms_core_load_payment($form['#ms_core_pid']);
 
-  // Enter the payment, without inserting a new record or validating it.
-  ms_core_enter_payment($payment, FALSE, TRUE, FALSE);
+  // Process the payment, without inserting a new record.
+  ms_core_enter_payment($payment, TRUE, FALSE);
 
   drupal_set_message(t('Payment %number has been resubmitted.', array('%number' => $payment->pid)));
   $form_state['redirect'] = 'admin/moneyscripts/orders';
@@ -1336,8 +1347,7 @@ function ms_core_resfund_payment_confirm_submit($form, &$form_state) {
       $refund_payment = ms_core_new_payment($payment->oid, $payment->gateway, 'refund');
       ms_core_enter_payment($refund_payment);
       drupal_set_message(t('Payment %number has been refunded.', array('%number' => $payment->pid)));
-    }
-    else {
+    } else {
       drupal_set_message(t("There was an error refunding the payment. Please see the logs for more details.", 'error'));
     }
   }
@@ -1394,8 +1404,7 @@ function ms_core_edit_payment_form($form, &$form_state, $action = 'add', $paymen
       '#description' => t("The ID of the Order"),
       '#default_value' => ($order) ? $order->order_number : '',
     );
-  }
-  elseif (arg(3) == 'add' AND $oid = arg(4)) {
+  } elseif (arg(3) == 'add' && ($oid = arg(4))) {
     $is_edit = FALSE;
     $order = ms_core_order_load_by_key($oid);
     $form['payment']['oid'] = array(
@@ -1411,10 +1420,9 @@ function ms_core_edit_payment_form($form, &$form_state, $action = 'add', $paymen
       '#description' => t("The ID of the Order"),
       '#default_value' => ($order) ? $order->order_number : '',
     );
-  }
-  else {
+  } else {
     $is_edit = FALSE;
-    $order = ms_core_order_load_by_key($id);
+    $order = FALSE;
     $form['payment']['oid'] = array(
       '#type' => 'textfield',
       '#title' => t('Order ID'),
@@ -1510,8 +1518,8 @@ function ms_core_edit_payment_form($form, &$form_state, $action = 'add', $paymen
 function ms_core_edit_payment_form_submit($form, &$form_state) {
   $v = $form_state['values'];
 
-  if (isset($v['orderid']) AND $order = ms_core_order_load($v['oid'])) {
-    if (isset($v['pid']) AND $payment = ms_core_load_payment($v['pid'])) {
+  if (isset($v['orderid']) && ($order = ms_core_order_load($v['oid']))) {
+    if (isset($v['pid']) && ($payment = ms_core_load_payment($v['pid']))) {
       $payment->oid = $order->oid;
       $payment->type = $v['type'];
       $payment->created = strtotime($v['created']['year'] . '-' . $v['created']['month'] . '-' . $v['created']['day'] . ' ' . $v['created_time']);
@@ -1525,10 +1533,9 @@ function ms_core_edit_payment_form_submit($form, &$form_state) {
       drupal_set_message(t('Payment %number has been saved.', array('%number' => $payment->pid)));
 
       if ($v['notify']) {
-        ms_core_enter_payment($payment, FALSE, TRUE, FALSE);
+        ms_core_enter_payment($payment, TRUE, FALSE);
       }
-    }
-    else {
+    } else {
       $payment = ms_core_new_payment($order->oid, $v['gateway'], $v['type']);
       $payment->created = strtotime($v['created']['year'] . '-' . $v['created']['month'] . '-' . $v['created']['day'] . ' ' . $v['created_time']);
       $payment->transaction = $v['transaction'];
@@ -1540,12 +1547,11 @@ function ms_core_edit_payment_form_submit($form, &$form_state) {
       $payment->shipping_address = $order->shipping_address;
 
       // Add the Payment to the Order.
-      ms_core_enter_payment($payment, FALSE, $v['notify']);
+      ms_core_enter_payment($payment, $v['notify']);
 
       drupal_set_message(t('Added a new payment for Order %number.', array('%number' => $order->order_number)));
     }
-  }
-  else {
+  } else {
     drupal_set_message(t('Error loading the order.'));
   }
 
@@ -1630,7 +1636,7 @@ function ms_core_rebuild_orders_confirm_submit($form, &$form_state) {
   // Load all of the orders from the database.
   $result = db_query("SELECT * FROM {ms_orders}");
   foreach ($result as $row) {
-    // For each order, load the products and get the override settings and data
+    // For each order, load the products && get the override settings && data
     // into the order object.
     $order = ms_core_order_load($row->oid);
     $data = $order->data;

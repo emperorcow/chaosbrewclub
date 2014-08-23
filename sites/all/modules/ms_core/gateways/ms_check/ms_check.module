@@ -38,10 +38,10 @@ function ms_check_cron() {
     variable_set('ms_check_last_overdue_reminder', REQUEST_TIME);
     $result = db_query("SELECT * FROM {ms_recurring_schedules} WHERE status = :status AND next_payment < :threshold AND notified = :zero2",
       array(
-      ':status' => 'active',
-      ':threshold' => strtotime("-" . variable_get('ms_check_payment_overdue_days', 7) . " days"),
-      ':zero2' => 0,
-    ));
+        ':status' => 'active',
+        ':threshold' => strtotime("-" . variable_get('ms_check_payment_overdue_days', 7) . " days"),
+        ':zero2' => 0,
+      ));
 
     foreach ($result as $recurring_schedule) {
       $order = ms_core_order_load($recurring_schedule->oid);
@@ -266,16 +266,14 @@ function ms_check_checkout() {
   // Stop the caching
   $GLOBALS['conf']['cache'] = FALSE;
 
-  global $user;
-
   if (!$order = ms_core_load_session_order()) {
     // The order wasn't loaded: Error
-    $content = t('There was an error with the checkout');
+    return t('There was an error with the checkout');
   }
 
   if ($order->status != 'checkout') {
     // The order is not in checkout and shouldn't be here
-    $content = t('This order has already been through Checkout.');
+    return t('This order has already been through Checkout.');
   }
 
   // Get the Payment Form
@@ -343,9 +341,9 @@ function ms_check_checkout_form_submit($form, &$form_state) {
   ms_core_order_save($order);
 
   // Send email to user
-  $message = drupal_mail('ms_check', 'checkout_complete', $v['billing_email'], language_default(), array('order' => $order), ms_core_variable_get('ms_core_store_email', '', $order));
+  drupal_mail('ms_check', 'checkout_complete', $v['billing_email'], language_default(), array('order' => $order), ms_core_variable_get('ms_core_store_email', '', $order));
   // Send email to admin
-  $message = drupal_mail('ms_check', 'checkout_complete_admin', variable_get('site_mail', ''), language_default(), array('order' => $order), ms_core_variable_get('ms_core_store_email', '', $order));
+  drupal_mail('ms_check', 'checkout_complete_admin', variable_get('site_mail', ''), language_default(), array('order' => $order), ms_core_variable_get('ms_core_store_email', '', $order));
 
   // Go to Instructions Page
   drupal_goto('ms_check/instructions');
@@ -359,13 +357,12 @@ function ms_check_instructions_page() {
     // Should never get this far
     ms_core_log_error('ms_check', "Unable to save the address info because unable to load order.");
     return t('There was an error during checkout.');
-  }
-  else {
+  } else {
     // Show the instructions here
     $instructions = token_replace(variable_get('ms_check_instructions', ''),
-    array(
-      'ms_core_order' => $order,
-    ));
+      array(
+        'ms_core_order' => $order,
+      ));
     return $instructions;
   }
 }
@@ -380,6 +377,8 @@ function ms_check_instructions_page() {
 function ms_check_mail($key, &$message, $seed_vars) {
   $order = $seed_vars['order'];
   $account = user_load($order->uid);
+  $subject = "";
+  $body = "";
 
   switch ($key) {
     case 'payment_overdue':
@@ -401,13 +400,13 @@ function ms_check_mail($key, &$message, $seed_vars) {
   // Replace the Tokens
   $message['subject'] = token_replace($subject,
     array(
-    'ms_core_order' => $order,
-    'user' => $account,
-  ));
+      'ms_core_order' => $order,
+      'user' => $account,
+    ));
   $message['body'][] = token_replace($body,
     array(
-    'ms_core_order' => $order,
-    'user' => $account,
-  ));
+      'ms_core_order' => $order,
+      'user' => $account,
+    ));
 }
 

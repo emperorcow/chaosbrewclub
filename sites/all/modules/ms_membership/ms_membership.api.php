@@ -29,7 +29,7 @@
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $m_plan
+ * @param MsProductsPlan $m_plan
  *   The membership plan object.
  *
  * @ingroup ms_membership_api
@@ -48,7 +48,7 @@ function hook_ms_membership_signup($account, $membership, $m_plan) {
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $m_plan
+ * @param MsProductsPlan $m_plan
  *   The membership plan object.
  *
  * @ingroup ms_membership_api
@@ -61,15 +61,16 @@ function hook_ms_membership_renewal($account, $membership, $m_plan) {
  * Allows you to take action when a membership changes from one plan to another
  *
  * This gets called whenever a membership is modified from one plan to another.
- * You can use this hook to save data to external tables, trigger extra actions, etc.
+ * You can use this hook to save data to external tables, trigger extra actions,
+ * etc.
  *
  * @param object $account
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $new_plan
+ * @param MsProductsPlan $new_plan
  *   The new membership plan object.
- * @param MsMembershipPlan $old_plan
+ * @param MsProductsPlan $old_plan
  *   The old membership plan object
  *
  * @ingroup ms_membership_api
@@ -89,7 +90,7 @@ function hook_ms_membership_modification($account, $membership, $new_plan, $old_
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $m_plan
+ * @param MsProductsPlan $m_plan
  *   The membership plan object.
  *
  * @ingroup ms_membership_api
@@ -108,7 +109,7 @@ function hook_ms_membership_expiring_soon($account, $membership, $m_plan) {
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $m_plan
+ * @param MsProductsPlan $m_plan
  *   The membership plan object.
  *
  * @ingroup ms_membership_api
@@ -127,7 +128,7 @@ function hook_ms_membership_expiring($account, $membership, $m_plan) {
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $m_plan
+ * @param MsProductsPlan $m_plan
  *   The membership plan object.
  *
  * @ingroup ms_membership_api
@@ -146,7 +147,7 @@ function hook_ms_membership_cancel($account, $membership, $m_plan) {
  *   The user object for the account associated with the membership.
  * @param object $membership
  *   The membership object.
- * @param MsMembershipPlan $m_plan
+ * @param MsProductsPlan $m_plan
  *   The membership plan object.
  *
  * @ingroup ms_membership_api

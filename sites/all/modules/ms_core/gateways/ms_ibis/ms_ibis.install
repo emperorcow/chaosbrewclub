@@ -58,12 +58,6 @@ function ms_ibis_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
-      'client_ip_addr' => array(
-        'description' => 'Client IP address.',
-        'type' => 'varchar',
-        'length' => 50,
-        'default' => '',
-      ),
       'description' => array(
         'description' => 'Transaction description.',
         'type' => 'text',

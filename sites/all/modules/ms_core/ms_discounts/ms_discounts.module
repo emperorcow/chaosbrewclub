@@ -136,8 +136,7 @@ function ms_discounts_display() {
   if (count($rows)) {
     $output = theme('table', array('header' => $header, 'rows' => $rows, 'attributes' => array('width' => '100%'), 'empty' => t('No discounts.')));
     $output .= theme('pager', array('tags' => NULL));
-  }
-  else {
+  } else {
     $output = '<p>' . t('There are currently no discounts in the system.') . '</p>';
   }
 
@@ -161,9 +160,7 @@ function ms_discounts_add_form($form, &$form_state, $action, $id = NULL) {
     $discount = ms_discounts_load($id);
     $form['#ms_discounts_id'] = $discount->id;
     $form['#ms_discounts'] = $discount;
-    $used = $discount->used;
-  }
-  else {
+  } else {
     $discount = new stdClass;
     $discount->valid_until = REQUEST_TIME;
     $discount->max_uses = 0;
@@ -173,7 +170,6 @@ function ms_discounts_add_form($form, &$form_state, $action, $id = NULL) {
     $discount->type = '';
     $discount->minimum_order = '';
     $discount->value = '';
-    $used = 0;
     $discount->data = array(
       'minimum_order' => 0,
       'roles' => array(),
@@ -288,11 +284,10 @@ function ms_discounts_add_form($form, &$form_state, $action, $id = NULL) {
   );
 
   if (isset($discount->data['users'])) {
-    foreach ($discount->data['users'] as $uid) {
-      $username = $uid ? db_query('SELECT name FROM {users} WHERE uid = :uid', array(':uid' => $uid))->fetchField() : t('anonymous users');
+    foreach ($discount->data['users'] as $username) {
       $form['criteria']['users'][] = array(
         '#type' => 'textfield',
-        '#default_value' => $username . ' [uid:' . $uid . ']',
+        '#default_value' => $username,
         '#autocomplete_path' => 'ms_core/autocomplete/user',
       );
     }
@@ -378,19 +373,6 @@ function ms_discounts_add_form($form, &$form_state, $action, $id = NULL) {
 }
 
 /**
- * Form validation handler for ms_discounts_add_form().
- *
- * @see ms_discounts_add_form_submit().
- */
-function ms_discounts_add_form_validate($form, &$form_state) {
-  foreach ($form_state['values']['users'] as $key => $user) {
-    if ($user && !preg_match('/\[uid:(\d+)\]$/', $user)) {
-      form_set_error('users][' . $key, t('User names must include the user ID.'));
-    }
-  }
-}
-
-/**
  * Form submission_handler for ms_discounts_add_form().
  *
  * @see ms_discounts_add_form_validate()
@@ -404,10 +386,8 @@ function ms_discounts_add_form_submit($form, &$form_state) {
   $data['products_method'] = $form_state['values']['products_method'];
   $data['max_per_cart'] = $form_state['values']['max_per_cart'];
 
-  foreach ($form_state['values']['users'] as $key => $user) {
-    if ($user && preg_match('/\[uid:(\d+)\]$/', $user, $matches)) {
-      $data['users'][] = $matches[1];
-    }
+  foreach ($form_state['values']['users'] as $username) {
+    $data['users'][] = $username;
   }
 
   foreach ($form_state['values']['roles'] as $role) {
@@ -423,32 +403,31 @@ function ms_discounts_add_form_submit($form, &$form_state) {
   }
 
   if (!isset($form['#ms_discounts_id'])) {
-    $id = db_insert('ms_discounts')
+    db_insert('ms_discounts')
       ->fields(array(
-      'name' => $form_state['values']['name'],
-      'value' => floatval($form_state['values']['value']),
-      'type' => $form_state['values']['type'],
-      'scope' => $form_state['values']['scope'],
-      'status' => $form_state['values']['status'],
-      'valid_until' => $valid_until,
-      'max_uses' => $form_state['values']['max_uses'],
-      'data' => serialize($data),
-    ))
+        'name' => $form_state['values']['name'],
+        'value' => floatval($form_state['values']['value']),
+        'type' => $form_state['values']['type'],
+        'scope' => $form_state['values']['scope'],
+        'status' => $form_state['values']['status'],
+        'valid_until' => $valid_until,
+        'max_uses' => $form_state['values']['max_uses'],
+        'data' => serialize($data),
+      ))
       ->execute();
     drupal_set_message(t('Discount %name has been created.', array('%name' => $form_state['values']['name'])));
-  }
-  else {
+  } else {
     db_update('ms_discounts')
       ->fields(array(
-      'name' => $form_state['values']['name'],
-      'value' => floatval($form_state['values']['value']),
-      'type' => $form_state['values']['type'],
-      'scope' => $form_state['values']['scope'],
-      'status' => $form_state['values']['status'],
-      'valid_until' => $valid_until,
-      'max_uses' => $form_state['values']['max_uses'],
-      'data' => serialize($data),
-    ))
+        'name' => $form_state['values']['name'],
+        'value' => floatval($form_state['values']['value']),
+        'type' => $form_state['values']['type'],
+        'scope' => $form_state['values']['scope'],
+        'status' => $form_state['values']['status'],
+        'valid_until' => $valid_until,
+        'max_uses' => $form_state['values']['max_uses'],
+        'data' => serialize($data),
+      ))
       ->condition('id', $form['#ms_discounts_id'])
       ->execute();
     drupal_set_message(t('Discount %name has been updated.', array('%name' => $form_state['values']['name'])));
@@ -484,6 +463,9 @@ function ms_discounts_load($id) {
   $discount = db_query("SELECT * FROM {ms_discounts} WHERE id = :id", array(':id' => $id))->fetchObject();
   if ($discount->data) {
     $discount->data = unserialize($discount->data);
+  }
+  if (empty($discount->data['products'])) {
+    $discount->data['products'] = array();
   }
   return $discount;
 }
@@ -532,7 +514,6 @@ function ms_discounts_validate($cart, $discount) {
   global $user;
 
   $applicable_total = ms_core_get_order_products_total($cart);
-  $applicable_qty = 1;
 
   if ($applicable_total == 0 AND $discount->scope == 'initial') {
     return FALSE;
@@ -543,7 +524,7 @@ function ms_discounts_validate($cart, $discount) {
     $used = db_query("SELECT COUNT(*) FROM {ms_order_adjustments} AS msoa
       LEFT JOIN {ms_orders} AS mso ON msoa.oid = mso.oid
       WHERE msoa.id = :msoaid AND mso.uid <> :msouid",
-    array(':msoaid' => 'ms_discounts_' . $discount->id, ':msouid' => 0))->fetchField();
+      array(':msoaid' => 'ms_discounts_' . $discount->id, ':msouid' => 0))->fetchField();
     if ($used >= $discount->max_uses) {
       return FALSE;
     }
@@ -572,14 +553,14 @@ function ms_discounts_validate($cart, $discount) {
   }
 
   // Check the user id.
-  if (isset($discount->data['users'])) {
+  if (!empty($discount->data['users'])) {
     if (!in_array("$user->uid", $discount->data['users'], TRUE)) {
       return FALSE;
     }
   }
 
   // Check the roles.
-  if (isset($discount->data['roles'])) {
+  if (!empty($discount->data['roles'])) {
     $role_found = FALSE;
     foreach ($discount->data['roles'] as $role) {
       if (in_array($role, $user->roles)) {
@@ -593,7 +574,7 @@ function ms_discounts_validate($cart, $discount) {
   }
 
   // Check the products.
-  if (isset($discount->data['products'])) {
+  if (!empty($discount->data['products'])) {
     $number_discounts = ms_discounts_get_discount_quantity($cart, $discount, $discount->data['products_method']);
     if ($number_discounts == 0) {
       return FALSE;
@@ -615,9 +596,9 @@ function ms_discounts_get_discount_quantity($cart, $discount, $method = 'any') {
   switch ($method) {
     case 'any':
       foreach ($discount->data['products'] as $id) {
-        foreach ($cart->products as $key => $product) {
-          $id = str_replace( '*' , '.*', $id);
-          if (preg_match( '/^' . $id . '$/i' , $product->module . '-' . $product->id)) {
+        foreach ($cart->products as $product) {
+          $id = str_replace('*', '.*', $id);
+          if (preg_match('/^' . $id . '$/i', $product->module . '-' . $product->id)) {
             $matches += $product->qty;
           }
         }
@@ -629,7 +610,7 @@ function ms_discounts_get_discount_quantity($cart, $discount, $method = 'any') {
       $set = array();
       // First, put all of the sets into an array.
       foreach ($discount->data['products'] as $id) {
-        $id = str_replace( '*' , '.*', $id);
+        $id = str_replace('*', '.*', $id);
         if (!isset($set[$id])) {
           $set[$id] = 0;
         }
@@ -637,8 +618,8 @@ function ms_discounts_get_discount_quantity($cart, $discount, $method = 'any') {
       }
 
       foreach ($set as $id => $needed) {
-        foreach ($cart->products as $key => $product) {
-          if (preg_match( '/^' . $id . '$/i' , $product->module . '-' . $product->id)) {
+        foreach ($cart->products as $product) {
+          if (preg_match('/^' . $id . '$/i', $product->module . '-' . $product->id)) {
             if (!isset($matched_count[$id])) {
               $matched_count[$id] = 0;
             }
@@ -654,8 +635,7 @@ function ms_discounts_get_discount_quantity($cart, $discount, $method = 'any') {
         foreach ($set as $id => $needed) {
           if (isset($matched_count[$id]) && $matched_count[$id] >= $needed) {
             $matched_count[$id] -= $needed;
-          }
-          else {
+          } else {
             $found = FALSE;
           }
         }
@@ -740,9 +720,9 @@ function ms_discounts_add_discount_to_cart($cart, $discount) {
     $adjustment->type = 'fixed';
     $first_product = null;
     foreach ($discount->data['products'] as $id) {
-      foreach ($cart->products as $key => $product) {
-        $id = str_replace( '*' , '.*', $id);
-        if (preg_match( '/^' . $id . '$/i' , $product->module . '-' . $product->id)) {
+      foreach ($cart->products as $product) {
+        $id = str_replace('*', '.*', $id);
+        if (preg_match('/^' . $id . '$/i', $product->module . '-' . $product->id)) {
           $first_product = $product;
           break;
         }
@@ -750,15 +730,18 @@ function ms_discounts_add_discount_to_cart($cart, $discount) {
     }
     $value = ($discount->value / 100) * $first_product->amount;
     $adjustment->value = -$value;
-  }
-  else {
+  } else {
     $adjustment->type = $discount->type;
     $adjustment->value = -$discount->value;
   }
 
   $adjustment->optional = FALSE;
 
-  $number_discounts = ms_discounts_get_discount_quantity($cart, $discount, $discount->data['products_method']);
+  $number_discounts = 1;
+
+  if (!empty($discount->data['products'])) {
+    $number_discounts = ms_discounts_get_discount_quantity($cart, $discount, $discount->data['products_method']);
+  }
 
   if ($discount->data['max_per_cart'] > 0 && $number_discounts > $discount->data['max_per_cart']) {
     $number_discounts = $discount->data['max_per_cart'];
@@ -781,9 +764,9 @@ function ms_discounts_add_discount_to_cart($cart, $discount) {
   db_query("UPDATE {ms_discounts} SET used = used + 1 WHERE id = :id", array(':id' => $discount->id));
 
   /**
-  drupal_set_message(t('Discount @name has been applied to your order, for a discount of @discount.',
-    array('@discount' => ms_discounts_get_discount_string($discount), '@name' => $discount->name)));
-  */
+   * drupal_set_message(t('Discount @name has been applied to your order, for a discount of @discount.',
+   * array('@discount' => ms_discounts_get_discount_string($discount), '@name' => $discount->name)));
+   */
 }
 
 /**

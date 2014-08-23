@@ -129,7 +129,6 @@ function ms_fac_cron() {
         $payment->amount = $recurring_schedule->main_amount;
         $payment->currency = $order->currency;
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Update the address
         $payment->billing_address = array(
@@ -145,13 +144,13 @@ function ms_fac_cron() {
         $payment->last_name = $payment_profile->billToLastName;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
 
         // Check if the recurring_schedule is done, send rec_eot
-        if ($recurring_profile->total_occurrences <= ($recurring_profile->current_payments + 1)) {
+        if ($recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
           $payment->type = 'rec_eot';
           $payment->amount = 0;
-          ms_core_enter_payment($payment, FALSE);
+          ms_core_enter_payment($payment);
         }
       }
       else {
@@ -409,8 +408,8 @@ function ms_fac_create_cim_profiles_from_order($order, $v) {
       'phone' => trim($v['billing_phone']),
       'fax' => '',
     );
-    $payment_profile = ms_fac_create_payment_profile($account->uid, $address, trim($v['cc_number']), trim($v['cc_exp_month']), trim($v['cc_exp_year']));
-    $shipping_profile = ms_fac_create_shipping_profile($account->uid, $address);
+    ms_fac_create_payment_profile($account->uid, $address, trim($v['cc_number']), trim($v['cc_exp_month']), trim($v['cc_exp_year']));
+    ms_fac_create_shipping_profile($account->uid, $address);
   }
 }
 
@@ -500,7 +499,6 @@ function ms_fac_enter_payment($order, $amount, $type, $txn_id, $payment_profile)
   $payment->amount = $amount;
   $payment->currency = $order->currency;
   $payment->data = $payment_profile;
-  $payment->recurring_schedule = $order->recurring_schedule;
 
   // Update the address
   $payment->billing_address = array(
@@ -516,7 +514,7 @@ function ms_fac_enter_payment($order, $amount, $type, $txn_id, $payment_profile)
   $payment->last_name = $payment_profile->billToLastName;
 
   // Add the Payment to the Order
-  ms_core_enter_payment($payment, FALSE);
+  ms_core_enter_payment($payment);
 }
 
 /********************************************************************
@@ -595,7 +593,6 @@ function ms_fac_cim_checkout_form_validate($form, &$form_state) {
   $form_values = $form_state['values'];
 
   $order = ms_core_order_load($form_values['ms_oid']);
-  $account = user_load($order->uid);
   $payment_profile = ms_fac_get_payment_profile_by_id($form_values['payment_id']);
 
   switch ($order->order_type) {
@@ -802,9 +799,6 @@ function ms_fac_checkout_form_submit($form, &$form_state) {
  * Handles authorizations and captures through AIM at Authorize.Net
  */
 function ms_fac_charge($order, $amount, $data, $mode = 'AUTH_CAPTURE', $auth_cvv = TRUE) {
-  $return = array();
-  global $user;
-
   $my_currency = ms_fac_get_currency_code($order->currency);
 
   $order_total = round($amount, ms_fac_get_decimals($my_currency));
@@ -895,8 +889,6 @@ function ms_fac_charge($order, $amount, $data, $mode = 'AUTH_CAPTURE', $auth_cvv
  * Creates a new CIM charging schedule
  */
 function ms_fac_cim_charge($order, $amount, $payment_profile) {
-  $return = array();
-
   $data = array(
     'cc_exp_month' => $payment_profile->expirationMonth,
     'cc_exp_year' => $payment_profile->expirationYear,
@@ -1198,13 +1190,6 @@ function ms_fac_curl_process($host, $path, $fields) {
     $return['message'] = t('Transaction timed out or no response received.');
   }
   else {
-    $responsecode = $response['ResponseCode'];
-    $reasoncode = $response['ReasonCode'];
-    $reasoncodedesc = $response['ReasonCodeDesc'];
-    $authcode = $response['AuthCode'];
-    $CVV2Result = $response['CVV2Result'];
-    $AVSResult = $response['AVSResult'];
-
     // determine if the transaction was a success
     if ($response['ResponseCode'] == '1') {
       $return['approved'] = TRUE;

@@ -4,8 +4,8 @@
  * @file
  * Class definition for RealexRemote.
  */
-
-class RealexRemote {
+class RealexRemote
+{
   // Initialise arrays
   var $parser;
   var $record;
@@ -24,7 +24,7 @@ class RealexRemote {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-    $response = curl_exec ($ch);
+    $response = curl_exec($ch);
     curl_close($ch);
 
     $this->parseXML($response);
@@ -32,8 +32,8 @@ class RealexRemote {
 
   function parseXML($response) {
     // Clean up the response.
-    $response = eregi_replace('[[:space:]]+', ' ', $response);
-    $response = eregi_replace("[\n\r]", '', $response);
+    $response = preg_replace('/[[:space:]]+/i', ' ', $response);
+    $response = preg_replace("/[\n\r]/i", '', $response);
 
     // Create and initialise XML parser.
     $this->parser = xml_parser_create();
@@ -43,7 +43,7 @@ class RealexRemote {
 
     // 1 = single field, 2 = array field, 3 = record container.
     $this->field_type = array(
-      'response' =>1,
+      'response' => 1,
       'orderid' => 1,
       'authcode' => 1,
       'result' => 2,
@@ -77,15 +77,14 @@ class RealexRemote {
    *
    * $RESPONSE and $RESPONSE_SOMETHING
    */
-  function startElement($parser, $element,&$attrs) {
+  function startElement($parser, $element, &$attrs) {
     if ($element = strtolower($element)) {
       if (!isset($this->field_type[$element])) {
         $this->field_type[$element] = 1;
       }
       if ($this->field_type[$element] != 0) {
         $this->current_field = $element;
-      }
-      else {
+      } else {
         $this->current_field = '';
       }
       if ($element == 'response' && $attrs['TIMESTAMP']) {
@@ -95,7 +94,6 @@ class RealexRemote {
   }
 
   function endElement($parser, $element) {
-    $element = strtolower($element);
     $this->current_field = '';
   }
 
@@ -113,8 +111,7 @@ class RealexRemote {
       }
       if ($this->field_type[$field] == 2) {
         $this->record[$field][] = $text;
-      }
-      elseif ($this->field_type[$field] === 1) {
+      } elseif ($this->field_type[$field] === 1) {
         if (empty($this->record[$field])) {
           $this->record[$field] = "";
         }

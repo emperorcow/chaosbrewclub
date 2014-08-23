@@ -231,7 +231,7 @@ function ms_innovative_checkout_form_validate($form, &$form_state) {
 
   $order = ms_core_order_load($form_values['ms_oid']);
 
-  $response = ms_innovative_charge_card($order, $form_values, $vars);
+  $response = ms_innovative_charge_card($order, $form_values);
 
   if ($response['approved'] == TRUE) {
     // The credit card was approved
@@ -260,15 +260,13 @@ function ms_innovative_checkout_form_validate($form, &$form_state) {
 
     // Add the Payment to the Order
     ms_core_enter_payment($payment);
-  }
-  else { // The Credit Card was not approved, set an error on the form
+  } else { // The Credit Card was not approved, set an error on the form
     if (stristr($response['values']['error'], 'error code 2001')) {
       form_set_error('month', t('The credit card expiration date is invalid.'));
     }
     if (stristr($response['values']['error'], 'error code 3050')) {
       form_set_error('ccnumber', t('The credit card number you have entered does not appear to be a valid number. Please check the card number carefully.'));
-    }
-    else {
+    } else {
       form_set_error('ccnumber', t('Error') . ': ' . $response['values']['error']);
     }
   }
@@ -284,10 +282,9 @@ function ms_innovative_checkout_form_submit($form, &$form_state) {
   if ($v['ms_order_charged']) {
     $order = ms_core_order_load($v['ms_oid']);
     $order->status = 'Completed';
-    $order = ms_core_order_save($order);
+    ms_core_order_save($order);
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -295,7 +292,7 @@ function ms_innovative_checkout_form_submit($form, &$form_state) {
 /**
  * Helper function to charge the card
  */
-function ms_innovative_charge_card($order, $form, $vars) {
+function ms_innovative_charge_card($order, $form) {
   $submit_data = array(
     'target_app' => 'WebCharge_v5.06',
     'response_mode' => 'simple',
@@ -345,14 +342,14 @@ function ms_innovative_charge_card($order, $form, $vars) {
     $submit_data['username'] = 'gatewaytest';
     $submit_data['pw'] = 'GateTest2002';
     $url = 'https://transactions.innovativegateway.com/servlet/com.gateway.aai.Aai';
-  }
-  else {
+  } else {
     $submit_data['test_override_errors'] = 'FALSE';
     $url = 'https://transactions.innovativegateway.com/servlet/com.gateway.aai.Aai';
   }
 
+  $postdata = '';
   while (list($key, $value) = each($submit_data)) {
-    $postdata .= $key . '=' . urlencode(ereg_replace(',', '', $value)) . '&';
+    $postdata .= $key . '=' . urlencode(str_replace(',', '', $value)) . '&';
   }
 
   $postdata = substr($postdata, 0, -1);
@@ -386,17 +383,8 @@ function ms_innovative_charge_card($order, $form, $vars) {
 
   // If the Response is Approved, the Card has been charged
   if ($result_array["approval"] != "") {
-    $x_response_code = $result_array["approval"];
-    $x_response_text = $result_array["approval"];
-    $x_approval_code = $result_array["approval"];
-
     $response['approved'] = TRUE;
-  }
-  else { // Otherwise it was denied
-    $x_response_code = $result_array["error"];
-    $x_response_text = $result_array["error"];
-    $x_approval_code = $result_array["error"];
-
+  } else { // Otherwise it was denied
     $response['approved'] = FALSE;
   }
 

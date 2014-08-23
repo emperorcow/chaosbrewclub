@@ -25,15 +25,16 @@ function ms_paypal_rest_requirements($phase) {
 
   if ($phase == 'install') {
     // Check for CURL.
-    $requirements['ms_paypal_rest_curl']['title'] = $t('CURL');
     if (function_exists('curl_init')) {
       $requirements['ms_paypal_rest_curl'] = array(
+        'title' => $t('CURL'),
         'value' => $t('Installed'),
         'severity' => REQUIREMENT_OK,
       );
     }
     else {
       $requirements['ms_paypal_rest_curl'] = array(
+        'title' => $t('CURL'),
         'value' => $t('Missing!'),
         'severity' => REQUIREMENT_ERROR,
         'description' => $t('CURL is required for PayPal REST API.'),

@@ -109,7 +109,7 @@ function ms_userpoints_cron() {
 
     if ($response['approved']) {
       ms_core_log('ms_userpoints', 'Processed Recurring Charge for Order #!num. Here are the details: @message',
-          array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
+        array('!num' => $order->oid, '@message' => ms_core_print_r($recurring_schedule)));
 
       // Insert the rec_payment Payment to the database
       $payment = ms_core_new_payment($order->oid, 'ms_userpoints', 'rec_payment');
@@ -118,19 +118,17 @@ function ms_userpoints_cron() {
       $payment->amount = $response['data']['amount'];
       $payment->currency = $order->currency;
       $payment->data = $response['data'];
-      $payment->recurring_schedule = $order->recurring_schedule;
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
 
       // Check if the recurring_schedule is done, send rec_eot
       if ($recurring_schedule->total_occurrences != 0 AND $recurring_schedule->total_occurrences <= ($recurring_schedule->current_payments + 1)) {
         $payment->type = 'rec_eot';
         $payment->amount = 0;
-        ms_core_enter_payment($payment, FALSE);
+        ms_core_enter_payment($payment);
       }
-    }
-    else {
+    } else {
       // Log the error
       ms_core_log_error('ms_userpoints', 'Error Processing Recurring Charge: @message',
         array('@message' => $response['message']));
@@ -140,10 +138,9 @@ function ms_userpoints_cron() {
 
       $payment->transaction = drupal_get_token(serialize($order));
       $payment->data = $response['data'];
-      $payment->recurring_schedule = $order->recurring_schedule;
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
     }
   }
 }
@@ -282,12 +279,11 @@ function ms_userpoints_cancel_page_confirm_submit($form, &$form_state) {
   // Generate a Unique Transaction ID
   $payment->transaction = drupal_get_token(serialize($order) . REQUEST_TIME);
   $payment->currency = $order->currency;
-  $payment->recurring_schedule = $order->recurring_schedule;
   $payment->recurring_id = $subscription_id;
   $payment->billing_address = $order->billing_address;
   $payment->shipping_address = $order->shipping_address;
 
-  ms_core_enter_payment($payment, FALSE);
+  ms_core_enter_payment($payment);
 }
 
 /********************************************************************
@@ -392,12 +388,10 @@ function ms_userpoints_checkout_form_validate($form, &$form_state) {
         $payment->amount = $response['data']['amount'];
         $payment->currency = $response['data']['currency'];
         $payment->data = $response['data'];
-        $payment->recurring_schedule = $order->recurring_schedule;
 
         // Add the Payment to the Order
-        ms_core_enter_payment($payment, FALSE);
-      }
-      else { // The Charge was not approved, show an error
+        ms_core_enter_payment($payment);
+      } else { // The Charge was not approved, show an error
         form_set_error('balance', t('Error') . ': ' . $response['message']);
       }
       break;
@@ -421,8 +415,7 @@ function ms_userpoints_checkout_form_validate($form, &$form_state) {
 
         // Add the Payment to the Order
         ms_core_enter_payment($payment);
-      }
-      else { // The Credit Card was not approved, set an error on the form
+      } else { // The Credit Card was not approved, set an error on the form
         form_set_error('balance', t('Error') . ': ' . $response['message']);
       }
       break;
@@ -439,10 +432,9 @@ function ms_userpoints_checkout_form_submit($form, &$form_state) {
   if ($v['ms_order_charged']) {
     $order = ms_core_order_load($v['ms_oid']);
     $order->status = 'Completed';
-    $order = ms_core_order_save($order);
+    ms_core_order_save($order);
     drupal_goto('ms/thankyou');
-  }
-  else {
+  } else {
     // There was an error...
   }
 }
@@ -466,8 +458,7 @@ function ms_userpoints_charge_single($order) {
     $return['data']['transaction'] = drupal_get_token(serialize($order) . REQUEST_TIME);
     $return['data']['recurring_id'] = '';
     $return['data']['amount'] = $order->amount;
-  }
-  else {
+  } else {
     // Fail the charge with the reason text in the decline message.
     $return['approved'] = FALSE;
     $return['message'] = t('There was a problem deducting !points: @error',
@@ -504,8 +495,7 @@ function ms_userpoints_charge_recurring($order, $recurring_schedule, $first = TR
     $return['data']['transaction'] = drupal_get_token(serialize($order) . REQUEST_TIME);
     $return['data']['recurring_id'] = drupal_get_token(serialize($order) . REQUEST_TIME . 'recurring_id');
     $return['data']['amount'] = $amount;
-  }
-  else {
+  } else {
     // Fail the charge with the reason text in the decline message.
     $return['approved'] = FALSE;
     $return['message'] = t('There was a problem deducting !points: @error',
@@ -525,10 +515,10 @@ function ms_userpoints_get_packages_list() {
   foreach ($packages as $package) {
     $list[$package['points']] = t('@points !pointsname for @amount',
       array(
-      '@points' => $package['points'],
-      '!pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'),
-      '@amount' => ms_core_format_money($package['amount']),
-    ));
+        '@points' => $package['points'],
+        '!pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'),
+        '@amount' => ms_core_format_money($package['amount']),
+      ));
   }
 
   return $list;
@@ -593,7 +583,7 @@ function ms_userpoints_purchase_form($form, &$form_state) {
 function ms_userpoints_purchase_form_submit($form, &$form_state) {
   if ($package = ms_userpoints_get_package($form_state['values']['package'])) {
     $product = ms_core_new_product(t('@points !pointsname',
-      array('@points' => $package['points'], '!pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'))),
+        array('@points' => $package['points'], '!pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'))),
       'ms_userpoints', 1, $package['amount'], 'cart');
 
     // Store the custom data
@@ -631,8 +621,7 @@ function ms_userpoints_ms_order_payment($type, $product, $order, $payment) {
 
       ms_core_log_error('ms_userpoints', 'Removed @points points from @user because of refund.',
         array('@points' => $points, '@user' => $account->name));
-    }
-    else {
+    } else {
       // Add the points to the user's account
       // Remove the points from the user's account
       userpoints_userpointsapi(array(
@@ -672,8 +661,7 @@ function ms_userpoints_ms_order_status_change($old_status, $new_status, $order) 
             if ($points_txn['status']) {
               drupal_set_message(t('@points @pointsname have been subtracted to your account.',
                 array('@points' => $adjustment->data['points'], '@pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'))));
-            }
-            else {
+            } else {
               ms_core_log_error('ms_userpoints', 'Error subtracting userpoints for a UserPoints Discount for Order: !order',
                 array('!order' => ms_core_print_r($order)));
             }
@@ -717,7 +705,7 @@ function ms_userpoints_validate_discount($account, $points) {
   }
 
   // Get the maximum amount of points that can be used
-  $max_percent = (int) variable_get('ms_userpoints_max_percent', '100');
+  $max_percent = (int)variable_get('ms_userpoints_max_percent', '100');
   $rate = variable_get('ms_userpoints_point_value', 100);
 
   $max_amount = $applicable_total * ($max_percent / 100);
@@ -746,7 +734,7 @@ function ms_userpoints_enter_points_discount_form($form, $form_state) {
   $cart = ms_core_get_cart();
   $applicable_total = ms_core_get_order_products_total($cart);
 
-  $max_percent = (int) variable_get('ms_userpoints_max_percent', '100');
+  $max_percent = (int)variable_get('ms_userpoints_max_percent', '100');
   $rate = variable_get('ms_userpoints_point_value', 100);
 
   $max_amount = $applicable_total * ($max_percent / 100);
@@ -759,11 +747,11 @@ function ms_userpoints_enter_points_discount_form($form, $form_state) {
     '#description' => t('You may apply !pointsname from your balance towards this order.
       You can use up to !max_points !pointsname for a total discount of !max_amount. !pointsname balance: !balance',
       array(
-      '!pointsname' => variable_get(USERPOINTS_TRANS_UCPOINTS, 'Points'),
-      '!balance' => $balance,
-      '!max_points' => $max_points,
-      '!max_amount' => ms_core_format_money($max_amount),
-    )),
+        '!pointsname' => variable_get(USERPOINTS_TRANS_UCPOINTS, 'Points'),
+        '!balance' => $balance,
+        '!max_points' => $max_points,
+        '!max_amount' => ms_core_format_money($max_amount),
+      )),
     '#default_value' => '',
     '#size' => 25,
   );
@@ -789,15 +777,14 @@ function ms_userpoints_enter_points_discount_form_validate($form, $form_state) {
   $result = ms_userpoints_validate_discount($user, $points);
   if (!$result->valid) {
     form_set_error('points', $result->message);
-  }
-  else {
+  } else {
     $adjustment = new MsAdjustment();
     $adjustment->id = 'ms_userpoints_discount';
     $adjustment->display = t('!pointsname Used: !points',
       array(
-      '!pointsname' => variable_get(USERPOINTS_TRANS_UCPOINTS, 'Points'),
-      '!points' => $result->points,
-    ));
+        '!pointsname' => variable_get(USERPOINTS_TRANS_UCPOINTS, 'Points'),
+        '!points' => $result->points,
+      ));
     $adjustment->type = 'fixed';
     $adjustment->scope = 'initial';
     $adjustment->value = -$result->amount;
@@ -811,10 +798,10 @@ function ms_userpoints_enter_points_discount_form_validate($form, $form_state) {
 
     drupal_set_message(t('@points @pointsname have been applied towards this order, for a discount of @discount.',
       array(
-      '@discount' => ms_core_format_money($result->amount),
-      '@points' => $result->points,
-      '@pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'),
-    )));
+        '@discount' => ms_core_format_money($result->amount),
+        '@points' => $result->points,
+        '@pointsname' => variable_get(USERPOINTS_TRANS_LCPOINTS, 'points'),
+      )));
 
     // Redirec to ms/checkout
     drupal_goto('ms/checkout');

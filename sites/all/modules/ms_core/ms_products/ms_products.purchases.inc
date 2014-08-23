@@ -17,8 +17,12 @@
  *   The path of the edit page or FALSE.
  */
 function ms_products_get_purchase_edit_path($id) {
-  if ($purchase = ms_products_purchase_load($id) AND $plan = ms_products_plan_load($purchase->sku)) {
-    return 'admin/structure/ms_products/' . $plan->bundle . '/purchases/edit/' . $id;
+  $purchase = ms_products_purchase_load($id);
+  if ($purchase) {
+    $plan = ms_products_plan_load($purchase->sku);
+    if ($plan) {
+      return 'admin/structure/ms_products/' . $plan->bundle . '/purchases/edit/' . $id;
+    }
   }
 
   return FALSE;
@@ -34,8 +38,12 @@ function ms_products_get_purchase_edit_path($id) {
  *   The path of the delete page.
  */
 function ms_products_get_purchase_delete_path($id) {
-  if ($purchase = ms_products_purchase_load($id) AND $plan = ms_products_plan_load($purchase->sku)) {
-    return 'admin/structure/ms_products/' . $plan->bundle . '/purchases/delete/' . $id;
+  $purchase = ms_products_purchase_load($id);
+  if ($purchase) {
+    $plan = ms_products_plan_load($purchase->sku);
+    if ($plan) {
+      return 'admin/structure/ms_products/' . $plan->bundle . '/purchases/delete/' . $id;
+    }
   }
 
   return FALSE;
@@ -67,8 +75,7 @@ function ms_products_user_has_product($uid, $sku, $renewing = FALSE) {
           case 'delivered':
             return TRUE;
         }
-      }
-      else {
+      } else {
         switch ($row->status) {
           case 'completed':
           case 'canceled':
@@ -120,7 +127,7 @@ function ms_products_get_purchase_statuses() {
 
   // Also get custom statuses from bundles.
   $bundles = ms_products_get_bundles();
-  foreach ($bundles as $bundle => $bundle_info) {
+  foreach ($bundles as $bundle_info) {
     foreach ($bundle_info['purchase_statuses'] as $status => $name) {
       $statuses[$status] = $name;
     }
@@ -142,11 +149,11 @@ function ms_products_change_purchase_status($id, $status) {
   $plan = ms_products_plan_load($purchase->sku);
   $bundle_info = ms_products_get_bundle($plan->bundle);
   ms_core_log('ms_products', 'Changed the Status of @purchase_name !id to !status',
-      array(
-    '@purchase_name' => $bundle_info['purchase_name'],
-    '!id' => $id,
-    '!status' => ms_products_get_purchase_status_text($status),
-  ));
+    array(
+      '@purchase_name' => $bundle_info['purchase_name'],
+      '!id' => $id,
+      '!status' => ms_products_get_purchase_status_text($status),
+    ));
 
   return db_update('ms_products_purchases')
     ->fields(array(
@@ -170,7 +177,7 @@ function ms_products_change_purchase_oid($id, $oid) {
   $bundle_info = ms_products_get_bundle($plan->bundle);
 
   ms_core_log('ms_products', 'Changed the Order ID of @purchase_name !id to !oid',
-      array('@purchase_name' => $bundle_info['purchase_name'], '!id' => $id, '!oid' => $oid));
+    array('@purchase_name' => $bundle_info['purchase_name'], '!id' => $id, '!oid' => $oid));
 
   return db_update('ms_products_purchases')
     ->fields(array(
@@ -194,11 +201,11 @@ function ms_products_change_purchase_expiration($id, $expiration) {
   $bundle_info = ms_products_get_bundle($plan->bundle);
 
   ms_core_log('ms_products', 'Changed the Expiration Date of @purchase_name !id to !expiration',
-      array(
-    '@purchase_name' => $bundle_info['purchase_name'],
-    '!id' => $id,
-    '!expiration' => format_date($expiration, 'short'),
-  ));
+    array(
+      '@purchase_name' => $bundle_info['purchase_name'],
+      '!id' => $id,
+      '!expiration' => format_date($expiration, 'short'),
+    ));
 
   return db_update('ms_products_purchases')
     ->fields(array(
@@ -214,7 +221,7 @@ function ms_products_change_purchase_expiration($id, $expiration) {
  * @param int $id
  *   The purchase id.
  *
- * @return object
+ * @return MsProductsPurchase
  *   The purchase object.
  */
 function ms_products_purchase_load($id) {
@@ -222,10 +229,10 @@ function ms_products_purchase_load($id) {
   foreach ($result as $row) {
     // Invoke hook_ms_products_purchase_load().
     $plan = ms_products_plan_load($row->sku);
-    $purchase = new MsProductsPurchase($plan->bundle);
+    $purchase = new MsProductsPurchase($row->bundle);
     $row->data = unserialize($row->data);
 
-    $row_values = (array) $row;
+    $row_values = (array)$row;
 
     foreach ($row_values as $key => $value) {
       $purchase->$key = $value;
@@ -274,24 +281,26 @@ function ms_products_load_purchase_by_oid($oid, $sku) {
  *   An array of purchases.
  */
 function ms_products_get_user_purchases($uid, $bundle = NULL, $sku = NULL) {
-  $query = db_select('ms_products_purchases', 'd');
-  $query->fields('d');
-  $query->condition('d.uid', $uid);
-
-  if (!is_null($bundle)) {
-    $query->condition('d.bundle', $bundle);
-  }
-
-  if (!is_null($sku)) {
-    $query->condition('d.sku', $sku);
-  }
-
-  // execute the query
-  $result = $query->execute();
-
   $purchases = array();
-  foreach ($result as $purchase) {
-    $purchases[] = ms_products_purchase_load($purchase->id);
+  if (db_table_exists('ms_products_purchases')) {
+    $query = db_select('ms_products_purchases', 'd');
+    $query->fields('d');
+    $query->condition('d.uid', $uid);
+
+    if (!is_null($bundle)) {
+      $query->condition('d.bundle', $bundle);
+    }
+
+    if (!is_null($sku)) {
+      $query->condition('d.sku', $sku);
+    }
+
+    // execute the query
+    $result = $query->execute();
+
+    foreach ($result as $purchase) {
+      $purchases[] = ms_products_purchase_load($purchase->id);
+    }
   }
 
   return $purchases;
@@ -357,12 +366,22 @@ function ms_products_get_user_purchase($uid, $sku) {
  *
  * @param int $oid
  *   The order id.
+ * @param string $sku
+ *   (Optional) The sku of the product. Only applies to multi_recurring orders.
  *
- * @return MsProductsPurchase|false
+ * @return MsProductsPurchase
  *   The purchase object or false.
  */
-function ms_products_load_purchase_order_id($oid) {
-  $result = db_query("SELECT * FROM {ms_products_purchases} WHERE oid = :oid", array(':oid' => $oid));
+function ms_products_load_purchase_order_id($oid, $sku = NULL) {
+  $query = db_select('ms_products_purchases', 'p')
+    ->fields('p')
+    ->condition('oid', $oid);
+
+  if ($sku) {
+    $query->condition('sku', $sku);
+  }
+
+  $result = $query->execute();
   foreach ($result as $purchase) {
     return ms_products_purchase_load($purchase->id);
   }
@@ -414,7 +433,7 @@ function ms_products_get_purchase_field($bundle, $purchase_id, $field_name) {
  * @param mixed $field_value
  *   The value of the field.
  *
- * @return MsPurchase|false
+ * @return MsProductsPurchase|false
  *   The purchase object or FALSE.
  */
 function ms_products_load_purchase_by_field($bundle, $field_name, $field_value) {
@@ -523,17 +542,20 @@ function ms_products_get_purchases_count($sku, $statuses = array()) {
  *   (Optional) The number of payments currently made. Defaults to 0.
  * @param int $max_payments
  *   (Optional) The max number of payments. Defaults to 0.
+ *
+ * @return MsProductsPurchase
  */
 function ms_products_insert_purchase($oid, $uid, $sku, $expiration = 0, $status = 'active', $start_date = 0, $current_payments = 0, $max_payments = 0) {
   if (!$start_date) {
     $start_date = REQUEST_TIME;
   }
   $plan = ms_products_plan_load($sku);
-  $result = $id = db_insert('ms_products_purchases')
+  $id = db_insert('ms_products_purchases')
     ->fields(array(
       'oid' => $oid,
       'uid' => $uid,
       'sku' => $sku,
+      'pid' => $plan->pid,
       'expiration' => $expiration,
       'status' => $status,
       'start_date' => $start_date,
@@ -561,19 +583,19 @@ function ms_products_insert_purchase($oid, $uid, $sku, $expiration = 0, $status 
 function ms_products_increment_payment($oid, $num = 1) {
   db_update('ms_products_purchases')
     ->fields(array(
-    'current_payments' => $num,
-  ))
+      'current_payments' => $num,
+    ))
     ->condition('oid', $oid)
     ->execute();
 
   // Mark the order as completed if we have reached the max payments.
   $result = db_query("SELECT * FROM {ms_products_purchases} WHERE oid = :oid", array(':oid' => $oid));
   foreach ($result as $purchase) {
-    if ($purchase->max_payments AND ($purchase->current_payments == $purchase->max_payments)) {
+    if ($purchase->max_payments && ($purchase->current_payments == $purchase->max_payments)) {
       db_update('ms_products_purchases')
         ->fields(array(
-        'status' => 'completed',
-      ))
+          'status' => 'completed',
+        ))
         ->condition('oid', $oid)
         ->execute();
     }
@@ -614,7 +636,7 @@ function ms_products_change_purchase_options_page($purchase) {
  *
  * @param int $oid
  *   The order id.
- * @param int $id.
+ * @param int $id .
  *   The purchase id.
  * @param MsProductsPlan $plan
  *   The plan the user currently has.
@@ -629,7 +651,7 @@ function ms_products_change_purchase_options_form($form, &$form_state, $oid, $id
   $form['ms_products'] = array(
     '#type' => 'fieldset',
     '#attributes' => array('id' => 'ms_products_fieldset'),
-    '#title' => check_plain($bundle_info['plan_name']),
+    '#title' => t('Change @purchase_name options.', array('@purchase_name' => check_plain($bundle_info['purchase_name']))),
     '#weight' => 0,
     '#collapsible' => FALSE,
   );
@@ -645,16 +667,46 @@ function ms_products_change_purchase_options_form($form, &$form_state, $oid, $id
     '#type' => 'value',
     '#value' => $id,
   );
+  $form['ms_products']['radios'] = array(
+    '#tree' => TRUE,
+  );
 
   $options = array();
   foreach ($plan->plan_options as $option_name => $option_info) {
-    // @todo - Add support for changing radio type options?
-    if ($option_info['widget'] == 'checkbox') {
-      $options[$option_name] = t("@option_name (@amount) <br /> !option_description", array(
-        '@amount' => ms_core_format_money($option_info->amount),
-        '@option_name' => $option_info->title,
-        '!option_description' => $option_info->description,
-      ));
+    switch ($option_info->widget) {
+      case 'checkbox':
+        $options[$option_name] = t("@option_name (@amount) <br /> !option_description", array(
+          '@amount' => ms_core_format_money($option_info->amount),
+          '@option_name' => $option_info->title,
+          '!option_description' => $option_info->description,
+        ));
+        break;
+
+      case 'radios':
+        $sub_options = ms_core_map_select_options($option_info->sub_options, array('id', 'name', 'price'));
+
+        $radio_options = array();
+        foreach ($sub_options as $sub_option_name => $sub_option_info) {
+          $radio_options[$sub_option_name] = $sub_option_info['name'];
+          if (!empty($sub_option_info['price'])) {
+            $radio_options[$sub_option_name] .= ' ' . $sub_option_info['price'];
+          }
+        }
+
+        $selected = NULL;
+
+        if (!empty($purchase->options[$option_name]->sub_option)) {
+          $selected = $purchase->options[$option_name]->sub_option;
+        }
+
+        $form['ms_products']['radios'][$option_name] = array(
+          '#type' => 'radios',
+          '#title' => $option_info->title,
+          '#description' => $option_info->description,
+          '#options' => $radio_options,
+          '#default_value' => $selected,
+        );
+        break;
     }
   }
   $selected = array();
@@ -663,12 +715,14 @@ function ms_products_change_purchase_options_form($form, &$form_state, $oid, $id
     $selected[] = $option_name;
   }
 
-  $form['ms_products']['purchase_options'] = array(
-    '#type' => 'checkboxes',
-    '#title' => t('Options'),
-    '#options' => $options,
-    '#default_value' => $selected,
-  );
+  if (!empty($options)) {
+    $form['ms_products']['purchase_options'] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('Options'),
+      '#options' => $options,
+      '#default_value' => $selected,
+    );
+  }
   $form['ms_products']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Submit'),
@@ -699,8 +753,18 @@ function ms_products_change_purchase_options_form_submit($form, &$form_state) {
 
   // Add up the total of the selected plan options.
   $new_amount = 0;
-  foreach (array_filter($v['purchase_options']) as $option_name) {
-    $new_amount += $plan->plan_options[$option_name]->amount;
+  if (isset($v['purchase_options'])) {
+    foreach (array_filter($v['purchase_options']) as $option_name) {
+      $new_amount += $plan->plan_options[$option_name]->amount;
+    }
+  }
+  foreach (array_filter($v['radios']) as $option_name => $sub_option_name) {
+    $sub_options = ms_core_map_select_options($plan->plan_options[$option_name]->sub_options, array('id', 'name', 'price'));
+    if (isset($sub_options[$sub_option_name]['price'])) {
+      $new_amount += $sub_options[$sub_option_name]['price'];
+    } else {
+      $new_amount += $plan->plan_options[$option_name]->amount;
+    }
   }
 
   // If the total for the new options is more, do an upgrade workflow: Add the
@@ -716,18 +780,51 @@ function ms_products_change_purchase_options_form_submit($form, &$form_state) {
     if (!empty($v['purchase_options'])) {
       $_SESSION['ms_products_options_' . $plan->sku] = $v['purchase_options'];
     }
-    drupal_goto(ms_core_get_modify_url($order, $plan->sku));
-  }
-  else if ($new_amount < $old_amount) {
+
+    // Add the product id if multi_recurring.
+    $order_product_id = NULL;
+    if ($order->order_type == 'multi_recurring') {
+      foreach ($order->products as $product) {
+        if ($product->id == $purchase->sku && $product->module == $purchase->bundle) {
+          $order_product_id = $product->order_product_id;
+        }
+      }
+    }
+    drupal_goto(ms_core_get_modify_url($order, $plan->sku, $order_product_id));
+  } else if ($new_amount < $old_amount) {
     // Otherwise, do a downgrade workflow. Redirect to the downgrade page.
     // Add the selected options to the SESSION.
     if (!empty($v['purchase_options'])) {
       $_SESSION['ms_products_options_' . $plan->sku] = $v['purchase_options'];
     }
     drupal_goto('ms/downgrade/' . $order->oid . '/' . $plan->sku);
-  }
-  else {
-    drupal_set_message(t("No changes made."));
+  } else {
+    // Save the purchase options. Simply move them into the data object.
+    foreach ($plan->plan_options as $option_name => $option_info) {
+      if (isset($purchase->options[$option_name]->id)) {
+        $option_info->pid = $purchase->id;
+        $option_info->id = $purchase->options[$option_name]->id;
+      } else {
+        unset($option_info->pid);
+        unset($option_info->id);
+      }
+      $purchase->options[$option_name] = $option_info;
+      $purchase->options[$option_name]->name = $option_name;
+      if ($purchase->options[$option_name]->expiration) {
+        $purchase->options[$option_name]->expiration = strtotime($purchase->options[$option_name]->expiration);
+      }
+
+      if (isset($v['purchase_options'][$option_name])) {
+        $purchase->options[$option_name]->status = $v['purchase_options'][$option_name] ? 'active' : 'inactive';
+      }
+      if (isset($v['radios'][$option_name])) {
+        $purchase->options[$option_name]->status = 'active';
+        $purchase->options[$option_name]->sub_option = $v['radios'][$option_name];
+      }
+    }
+
+    $purchase->save();
+    drupal_set_message(t("Options updated successfully."));
   }
 }
 
@@ -756,7 +853,7 @@ function ms_products_change_purchase_page($purchase) {
  *   The options to show.
  * @param int $oid
  *   The order id.
- * @param int $id.
+ * @param int $id .
  *   The purchase id.
  * @param MsProductsPlan $old_plan
  *   The plan the user currently has.
@@ -795,13 +892,15 @@ function ms_products_change_purchase_form($form, &$form_state, $modify_options, 
       '#type' => 'value',
       '#value' => $id,
     );
-    $form['ms_products'] = ms_products_plans_element($form_state, t('Choose your new @plan', array('@plan' => $bundle_info['plan_name'])), '', $plans, 'ms_products');
+    $form['ms_products'] = ms_products_plans_element($form_state, t('Choose your new @plan', array('@plan' => $bundle_info['plan_name'])), '', $plans, 'ms_products', TRUE);
 
     $form['submit'] = array(
       '#type' => 'submit',
       '#value' => t('Submit'),
     );
   }
+
+  $form_state['redirect'] = drupal_get_destination();
 
   return $form;
 }
@@ -822,10 +921,23 @@ function ms_products_change_purchase_form_submit($form, &$form_state) {
 
   // @todo Maybe instead of splitting it into upgrade/downgrade, we should add up
   // the amount owed including plan options?
-  if ($order && $order->order_type == 'recurring' AND $order->gateway) {
+  if ($order && $order->order_type == 'recurring' && $order->gateway) {
     if (!empty($modify_options['upgrade'][$plan->sku])) {
       if (!empty($plan->data['grant_credit'])) {
-        if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $old_plan->recurring_schedule['main_amount'])) {
+        $credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $old_plan->recurring_schedule['main_amount']);
+
+        // Check if we need to prorate this even further.
+        if (!empty($plan->data['modify_existing_term']) && $purchase->expiration) {
+          // We need to prorate the new product price by taking only a percentage of it.
+          // For example, if the old plan is being upgraded after 3 months and expires in 9 months,
+          // then the new plan will only have 9 months or 75% of the actual time left.
+          // So the new plan should only cost 75% of the regular price.
+          $new_expiration = ms_core_calculate_expiration_date($plan->recurring_schedule);
+          $percent_unused = ($new_expiration - $purchase->expiration) / ($new_expiration - REQUEST_TIME);
+          $credit += round($plan->recurring_schedule['main_amount'] * $percent_unused, 2);
+        }
+
+        if ($credit) {
           $data['residual_credit'] = $credit;
           $order = ms_core_add_data($order, $data);
         }
@@ -834,20 +946,29 @@ function ms_products_change_purchase_form_submit($form, &$form_state) {
       if (!empty($form_state['values']['ms_products']['options'])) {
         $_SESSION['ms_products_options_' . $plan->sku] = $form_state['values']['ms_products']['options'];
       }
-      drupal_goto(ms_core_get_modify_url($order, $plan->sku));
-    }
-    elseif (!empty($modify_options['downgrade'][$plan->sku])) {
+
+      // Add the product id for multi_recurring.
+      // Add the product id if multi_recurring.
+      $order_product_id = NULL;
+      if ($order->order_type == 'multi_recurring') {
+        foreach ($order->products as $product) {
+          if ($product->id == $purchase->sku && $product->module == $purchase->bundle) {
+            $order_product_id = $product->order_product_id;
+          }
+        }
+      }
+      drupal_goto(ms_core_get_modify_url($order, $plan->sku, $order_product_id));
+    } elseif (!empty($modify_options['downgrade'][$plan->sku])) {
       // Add the selected options to the SESSION.
       if (!empty($form_state['values']['ms_products']['options'])) {
         $_SESSION['ms_products_options_' . $plan->sku] = $form_state['values']['ms_products']['options'];
       }
       drupal_goto('ms/downgrade/' . $order->oid . '/' . $plan->sku);
     }
-  }
-  else {
+  } else {
     // Add a product to the cart and go to checkout.
     if ($plan->sku) {
-      $product = ms_core_new_product(ms_products_translate_plan($plan, 'name'), $plan->bundle, $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
+      $product = ms_core_new_product($plan->name, $plan->bundle, $plan->sku, $plan->recurring_schedule['main_amount'], $plan->cart_type);
 
       // Store the Data.
       $product->data = $plan->data;
@@ -867,27 +988,39 @@ function ms_products_change_purchase_form_submit($form, &$form_state) {
         ms_products_add_plan_options($product, $plan, $option_defaults);
       }
 
-      $product = ms_core_add_cart_product($product);
+      if ($product->amount > 0) {
+        $product = ms_core_add_cart_product($product);
 
-      // Add the discount if applicable.
-      if (!empty($plan->data['grant_credit'])) {
-        if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $old_plan->recurring_schedule['main_amount'])) {
-          $old_plan = ms_products_plan_load($purchase->sku);
-          $adjustment = new MsAdjustment();
-          $adjustment->id = 'ms_products_credit_' . $purchase->id;
-          $adjustment->product_id = $product->cart_product_id;
-          $adjustment->display = t('Credit: !name', array('!name' => $old_plan->name));
-          $adjustment->type = 'fixed';
-          $adjustment->scope = 'initial';
-          $adjustment->value = -$credit;
-          $adjustment->weight = -1;
+        // Add the discount if applicable.
+        if (!empty($plan->data['grant_credit'])) {
+          if ($credit = ms_core_calculate_credit($purchase->oid, $purchase->expiration, $old_plan->recurring_schedule['main_amount'])) {
+            $old_plan = ms_products_plan_load($purchase->sku);
+            $adjustment = new MsAdjustment();
+            $adjustment->id = 'ms_products_credit_' . $purchase->id;
+            $adjustment->product_id = $product->cart_product_id;
+            $adjustment->display = t('Credit: !name', array('!name' => $old_plan->name));
+            $adjustment->type = 'fixed';
+            $adjustment->scope = 'initial';
+            $adjustment->value = -$credit;
+            $adjustment->weight = -1;
 
-          // Add the coupon to the order.
-          ms_core_add_cart_adjustment($adjustment, TRUE);
+            // Add the coupon to the order.
+            ms_core_add_cart_adjustment($adjustment, TRUE);
+          }
         }
-      }
 
-      ms_core_checkout();
+        ms_core_checkout();
+      } else {
+        // It's a free product, so let's just change it.
+        ms_products_delete_purchase($purchase->id);
+        $new_purchase = ms_products_insert_purchase(0, $purchase->uid, $plan->sku, $purchase->expiration, $purchase->status, $purchase->start_date, 1, 1);
+        ms_products_handle_purchase_options_payment('cart', $plan, $new_purchase, $product);
+        $destination = drupal_get_destination();
+        if (isset($destination['destination'])) {
+          drupal_goto($destination['destination']);
+        }
+        drupal_goto();
+      }
       exit;
     }
   }
@@ -925,21 +1058,17 @@ function ms_products_user_purchases_page($account, $bundle) {
 
     $rows = array();
     foreach ($purchases as $purchase) {
-      if ($purchase->oid && $order = ms_core_order_load($purchase->oid)) {
-        $lp_string = ms_core_get_last_payment_string($order);
-        $np_string = ms_core_get_next_payment_string($order);
-      }
-      else {
-        $order = FALSE;
-        $lp_string = t('N/A');
+      $plan = ms_products_plan_load($purchase->sku);
+      if ($purchase->oid && $purchase->status == 'active' && ($recurring_schedule = ms_core_get_recurring_schedule($purchase->oid, $plan->sku, $bundle))) {
+        $np_string = ms_core_get_next_payment_string($recurring_schedule);
+      } else {
         $np_string = t('N/A');
       }
-      $plan = ms_products_plan_load($purchase->sku);
 
       $display = array();
 
       $display[] = "<span class='ms_products_plan_name' title='"
-          . ms_products_translate_plan($plan, 'description') . "'>" . ms_products_translate_plan($plan, 'name') . "</span>";
+        . $plan->description . "'>" . $plan->name . "</span>";
 
       $status = ms_products_get_purchase_status_text($purchase->status);
       $expiration = ($purchase->expiration) ? format_date($purchase->expiration, 'small') : t('None');
@@ -951,20 +1080,28 @@ function ms_products_user_purchases_page($account, $bundle) {
       );
 
       $actions = array();
+      $order = ms_core_order_load($purchase->oid);
 
       switch ($purchase->status) {
         //case 'pending_downgrade': // Should pending downgrade really be able to cancel?
+        /** @noinspection PhpMissingBreakStatementInspection */
         case 'active':
           // Cancel Link.
-          if ($order AND user_access('cancel own ' . $bundle . ' purchases') AND $cancel_url = ms_core_get_cancel_url($order)) {
-            $actions['cancel'] = l(t('Cancel'), $cancel_url,
-              array('query' => drupal_get_destination()));
+          if ($order && user_access('cancel own ' . $bundle . ' purchases')) {
+            $recurring_schedule = ms_core_get_recurring_schedule($order->oid, $plan->sku, $bundle);
+            if ($recurring_schedule) {
+              $cancel_url = ms_core_get_cancel_url($order, $recurring_schedule->pid);
+              if ($cancel_url) {
+                $actions['cancel'] = l(t('Cancel'), $cancel_url,
+                  array('query' => drupal_get_destination()));
+              }
+            }
           }
-
+        // Fall through
         case 'canceled':
         case 'expiring':
           // Billing Settings Link.
-          if ($order AND user_access('edit own payment info') AND $billing_url = ms_core_get_billing_url($order)) {
+          if ($order && user_access('edit own payment info') && ($billing_url = ms_core_get_billing_url($order))) {
             $actions['billing'] = l(t('Update Billing Information'), $billing_url,
               array('query' => drupal_get_destination()));
           }
@@ -972,15 +1109,14 @@ function ms_products_user_purchases_page($account, $bundle) {
           // Show the Modify Purchase link.
           if (user_access('modify own ' . $bundle . ' purchases')) {
             if ($modify_options = ms_products_get_modify_options($plan)) {
-              $modify_urls = array();
               foreach ($modify_options['upgrade'] as $modify_option) {
-                if (!$order OR ($order AND (!$order->gateway OR $order->gateway == 'ms_core' OR ($order->gateway AND ms_core_get_modify_url($order, $modify_option->sku))))) {
+                if (!$order OR ($order && (!$order->gateway OR $order->gateway == 'ms_core' OR ($order->gateway && ms_core_get_modify_url($order, $purchase->sku))))) {
                   $actions['modify'] = l(t('Change @purchase', array('@purchase' => $bundle_info['purchase_name'])), 'ms_products/change/' . $purchase->id,
                     array('attributes' => array('class' => array('ms_modify_button'), 'rel' => $plan->sku)));
                 }
               }
               foreach ($modify_options['downgrade'] as $modify_option) {
-                if (!$order OR ($order AND (!$order->gateway OR $order->gateway == 'ms_core' OR ($order->gateway AND ms_core_get_modify_url($order, $modify_option->sku))))) {
+                if (!$order OR ($order && (!$order->gateway OR $order->gateway == 'ms_core' OR ($order->gateway && ms_core_get_modify_url($order, $purchase->sku))))) {
                   $actions['modify'] = l(t('Change @purchase', array('@purchase' => $bundle_info['purchase_name'])), 'ms_products/change/' . $purchase->id,
                     array('attributes' => array('class' => array('ms_modify_button'), 'rel' => $plan->sku)));
                 }
@@ -998,10 +1134,9 @@ function ms_products_user_purchases_page($account, $bundle) {
           // Show the Modify Purchase link.
           if (user_access('modify own ' . $bundle . ' purchases')) {
             if ($modify_options = ms_products_get_modify_options($plan)) {
-              $modify_urls = array();
               $options_combined = $modify_options['upgrade'] + $modify_options['downgrade'];
               foreach ($options_combined as $modify_option) {
-                if (!$order OR ($order AND (!$order->gateway OR $order->gateway == 'ms_core' OR ($order->gateway AND ms_core_get_modify_url($order, $modify_option->sku))))) {
+                if (!$order OR ($order && (!$order->gateway OR $order->gateway == 'ms_core' OR ($order->gateway && ms_core_get_modify_url($order, $purchase->sku))))) {
                   $actions['modify'] = l(t('Change @purchase', array('@purchase' => $bundle_info['purchase_name'])), 'ms_products/change/' . $purchase->id,
                     array('attributes' => array('class' => array('ms_modify_button'), 'rel' => $plan->sku)));
                 }
@@ -1021,25 +1156,23 @@ function ms_products_user_purchases_page($account, $bundle) {
       // Show Renew/Extend Link.
       // Check to see if the user can purchase the product according to their
       // roles.
-      if (user_access('renew own ' . $bundle . ' purchases') AND ms_products_can_purchase($account, $plan) AND !ms_products_plan_is_free($plan)) {
+      if (user_access('renew own ' . $bundle . ' purchases') && ms_products_can_purchase($account, $plan) && !ms_products_plan_is_free($plan)) {
         if ($plan->cart_type == 'recurring') {
           if (in_array($purchase->status, array('expired', 'canceled'))) {
             $actions['renew'] = l(t('Renew'), ms_products_get_renewal_link($purchase->sku, $purchase->id));
           }
-        }
-        else {
+        } else {
           if (ms_products_can_purchase($account, $plan)) {
             if (in_array($purchase->status, array('expired'))) {
               $actions['renew'] = l(t('Renew'), ms_products_get_renewal_link($purchase->sku, $purchase->id));
-            }
-            else if ($purchase->expiration AND empty($plan->recurring_schedule['fixed_date'])) {
+            } else if ($purchase->expiration && empty($plan->recurring_schedule['fixed_date'])) {
               $actions['extend'] = l(t('Extend term'), ms_products_get_renewal_link($purchase->sku, $purchase->id));
             }
           }
         }
       }
 
-      if(user_access('administer ' . $bundle . ' purchases')) {
+      if (user_access('administer ' . $bundle . ' purchases')) {
         $actions['edit'] = l(t('Edit @purchase_name', array('@purchase_name' => $bundle_info['purchase_name'])), 'admin/structure/ms_products/' . $bundle . '/purchases/edit/' . $purchase->id);
       }
 
@@ -1093,7 +1226,7 @@ function ms_products_user_purchases_page($account, $bundle) {
           continue;
         }
 
-        if (empty($active_purchases[$plan->sku]) AND !empty($plan->show_account)) {
+        if (empty($active_purchases[$plan->sku]) && !empty($plan->show_account)) {
           $purchase_options[$plan->sku] = $plan;
         }
       }
@@ -1129,12 +1262,11 @@ function ms_products_user_purchase_options_form($form, &$form_state, $plans, $bu
 
   foreach ($plans as $sku => $plan) {
     $purchase_options[$sku] = t('@plan - @amount<br />!description', array(
-      '@plan' => ms_products_translate_plan($plan, 'name'),
+      '@plan' => $plan->name,
       '@amount' => ms_core_get_recurring_string($plan->recurring_schedule),
-      '!description' => ms_products_translate_plan($plan, 'description'),
+      '!description' => $plan->description,
     ));
   }
-
 
   $form['purchase_options'] = ms_products_plans_element($form_state, t('Select @plan', array('@plan' => $bundle_info['plan_name'])), '', $purchase_options, 'purchase_options', TRUE, $default);
   $form['purchase_options']['#title'] = t('Purchase @purchase', array('@purchase' => $bundle_info['purchase_name']));
@@ -1142,6 +1274,7 @@ function ms_products_user_purchase_options_form($form, &$form_state, $plans, $bu
     '#type' => 'submit',
     '#value' => t('Purchase'),
   );
+  $form_state['redirect'] = drupal_get_destination();
 
   return $form;
 }
@@ -1171,7 +1304,7 @@ function ms_products_user_purchase_options_form_submit($form, &$form_state) {
  * @param MsProductsPlan $plan
  *   The new product plan.
  */
-function ms_products_modify_purchase(MsOrder $order, $old_purchase, MsProductsPlan $plan) {
+function ms_products_modify_purchase(MsOrder $order, MsProductsPurchase $old_purchase, MsProductsPlan $plan) {
   $account = user_load($order->uid);
 
   // Load the old product plan from the old_purchase.
@@ -1179,30 +1312,29 @@ function ms_products_modify_purchase(MsOrder $order, $old_purchase, MsProductsPl
   $bundle_info = ms_products_get_bundle($plan->bundle);
 
   // Update the purchase info to the new product plan.
-  $expiration = ms_products_get_expiration_date($plan->sku);
-
   db_update('ms_products_purchases')
     ->fields(array(
-    'status' => 'active',
-    'sku' => $plan->sku,
-    'oid' => $order->oid,
-    'current_payments' => 0,
-    'max_payments' => $plan->recurring_schedule['total_occurrences'],
-    'start_date' => REQUEST_TIME,
-    'expiration' => $expiration,
-  ))
+      'status' => $plan->cart_type == 'cart' ? 'complete' : 'active',
+      'sku' => $plan->sku,
+      'pid' => $plan->pid,
+      'oid' => $order->oid,
+      'current_payments' => 0,
+      'max_payments' => $plan->recurring_schedule['total_occurrences'],
+      'start_date' => REQUEST_TIME,
+      'expiration' => !empty($old_plan->data['modify_existing_term']) ? $old_purchase->expiration : ms_products_get_expiration_date($plan->sku),
+    ))
     ->condition('id', $old_purchase->id)
     ->execute();
 
   ms_core_log('ms_products', 'Modified @purchase for user %user from %old_mem to %new_mem',
     array(
-    '@purchase' => $bundle_info['purchase_name'],
-    '%user' => $account->name,
-    '%old_mem' => ms_products_translate_plan($old_plan, 'name'),
-    '%new_mem' => ms_products_translate_plan($plan, 'name'),
-  ));
+      '@purchase' => $bundle_info['purchase_name'],
+      '%user' => $account->name,
+      '%old_mem' => $old_plan->name,
+      '%new_mem' => $plan->name,
+    ));
 
-  $purchase = ms_products_load_purchase_order_id($order->oid);
+  $purchase = ms_products_purchase_load($old_purchase->id);
 
   $payment_vars = array(
     'id' => $purchase->id,
@@ -1210,7 +1342,7 @@ function ms_products_modify_purchase(MsOrder $order, $old_purchase, MsProductsPl
 
   // Set Message.
   drupal_set_message(t('Your @purchase_name has been changed to @purchase.',
-    array('@purchase_name' => $bundle_info['purchase_name'], '@purchase' => ms_products_translate_plan($plan, 'name'))));
+    array('@purchase_name' => $bundle_info['purchase_name'], '@purchase' => $plan->name)));
 
   // Send Mail.
   ms_products_send_mail('ms_products', 'modify', $account->mail, user_preferred_language($account), $payment_vars);
@@ -1340,10 +1472,10 @@ function ms_products_insert_new_purchase(MsProductsPlan $plan, $account) {
 
   ms_core_log('ms_products', '@plan_name %product manually added for user %username',
     array(
-    '@plan_name' => $bundle_info['plan_name'],
-    '%product' => $plan->name,
-    '%username' => $account->name,
-  ));
+      '@plan_name' => $bundle_info['plan_name'],
+      '%product' => $plan->name,
+      '%username' => $account->name,
+    ));
 
   return $purchase;
 }
@@ -1438,7 +1570,7 @@ function ms_products_purchase_edit_form($form, &$form_state, $bundle, $purchase)
     '#title' => t('Status'),
     '#options' => ms_products_get_purchase_statuses(),
     '#description' => t("What is the Status of the @purchase_name?",
-    array('@purchase_name' => $bundle_info['purchase_name'])),
+      array('@purchase_name' => $bundle_info['purchase_name'])),
     '#required' => FALSE,
     '#default_value' => $purchase->status,
   );
@@ -1455,10 +1587,11 @@ function ms_products_purchase_edit_form($form, &$form_state, $bundle, $purchase)
       '#collapsible' => FALSE,
       '#collapsed' => FALSE,
     );
+
     foreach ($plan->plan_options as $option_name => $option_info) {
       $form['plan_options'][$option_name] = array(
         '#type' => 'fieldset',
-        '#title' => filter_xss($option_info->title),
+        '#title' => !empty($option_info->title) ? filter_xss($option_info->title) : $option_info->name,
         '#description' => filter_xss($option_info->description),
         '#tree' => TRUE,
         '#collapsible' => FALSE,
@@ -1485,6 +1618,24 @@ function ms_products_purchase_edit_form($form, &$form_state, $bundle, $purchase)
         $form['plan_options'][$option_name]['id'] = array(
           '#type' => 'value',
           '#value' => $purchase->options[$option_name]->id,
+        );
+      }
+
+      // Show suboptions if applicable.
+      if (!empty($option_info->sub_options)) {
+        $sub_options = ms_core_map_select_options($plan->plan_options[$option_name]->sub_options, array('id', 'name', 'price'));
+        $radio_options = array();
+        foreach ($sub_options as $sub_option_name => $sub_option_info) {
+          $radio_options[$sub_option_name] = $sub_option_info['name'];
+          if (!empty($sub_option_info['price'])) {
+            $radio_options[$sub_option_name] .= ' ' . $sub_option_info['price'];
+          }
+        }
+        $form['plan_options'][$option_name]['sub_option'] = array(
+          '#type' => 'radios',
+          '#title' => t('Sub-Options'),
+          '#default_value' => $purchase->options[$option_name]->sub_option,
+          '#options' => $radio_options,
         );
       }
     }
@@ -1543,7 +1694,6 @@ function ms_products_purchase_edit_form_submit($form, &$form_state) {
   $account = user_load($purchase->uid);
   field_attach_submit('ms_products_purchase', $purchase, $form, $form_state);
   $plan = ms_products_plan_load($purchase->sku);
-  $bundle_info = ms_products_get_bundle($plan->bundle);
 
   $purchase->current_payments = $v['current_payments'];
   $purchase->max_payments = $v['max_payments'];
@@ -1551,15 +1701,14 @@ function ms_products_purchase_edit_form_submit($form, &$form_state) {
   $purchase->start_date = strtotime($v['start_date']);
   if (!$v['should_expire']) {
     $purchase->expiration = 0;
-  }
-  else {
+  } else {
     $purchase->expiration = strtotime($v['expiration']);
   }
 
   // Save the purchase options. Simply move them into the data object.
   if (!empty($v['plan_options'])) {
     foreach ($v['plan_options'] as $option_name => $option_info) {
-      $purchase->options[$option_name] = (object) $option_info;
+      $purchase->options[$option_name] = (object)$option_info;
       $purchase->options[$option_name]->pid = $purchase->id;
       $purchase->options[$option_name]->name = $option_name;
       if ($purchase->options[$option_name]->expiration) {
@@ -1598,7 +1747,7 @@ function ms_products_delete_purchase_confirm($form, &$form_state, $bundle, $purc
   $form['#ms_bundle'] = $bundle;
   $bundle_info = ms_products_get_bundle($bundle);
   return confirm_form($form, t('Are you sure you want to delete this @purchase_name?',
-    array('@purchase_name' => $bundle_info['purchase_name'])),
+      array('@purchase_name' => $bundle_info['purchase_name'])),
     'admin/structure/ms_products/' . $bundle . '/purchases/list',
     t('This action cannot be undone.'), t('Delete'));
 }
@@ -1616,10 +1765,10 @@ function ms_products_delete_purchase_confirm_submit($form, &$form_state) {
 
   drupal_set_message(t('@purchase_name %product for user %name Deleted',
     array(
-    '@purchase_name' => $bundle_info['purchase_name'],
-    '%name' => $account->name,
-    '%product' => $plan->name,
-  )));
+      '@purchase_name' => $bundle_info['purchase_name'],
+      '%name' => $account->name,
+      '%product' => $plan->name,
+    )));
 
   $form_state['redirect'] = 'admin/structure/ms_products/' . $plan->bundle . '/purchases/list';
 }
@@ -1646,7 +1795,6 @@ function ms_products_delete_purchase($id) {
   db_delete('ms_products_purchase_options')
     ->condition('pid', $purchase->id)
     ->execute();
-  $bundle_info = ms_products_get_bundle($plan->bundle);
 }
 
 /**
@@ -1685,6 +1833,10 @@ function ms_products_show_purchases($bundle = NULL) {
       'sort' => 'desc',
     ),
     array(
+      'data' => t('Order'),
+      'class' => array('ms_products_purchase_order_header'),
+    ),
+    array(
       'data' => t('Status'),
       'class' => array('ms_products_purchase_status_header'),
       'field' => 'd.status',
@@ -1713,7 +1865,7 @@ function ms_products_show_purchases($bundle = NULL) {
   $query = db_select('ms_products_purchases', 'd');
   $query->leftjoin('ms_products_plans', 'p', 'd.sku = p.sku');
   $query->leftjoin('users', 'u', 'd.uid = u.uid');
-  $query->fields('d', array('bundle', 'current_payments', 'max_payments', 'expiration', 'start_date', 'id', 'sku', 'uid', 'status'));
+  $query->fields('d');
   $query->addField('p', 'name', 'product_name');
   $query->fields('u', array('name'));
   $query = $query->extend('TableSort')->orderByHeader($headers);
@@ -1738,6 +1890,7 @@ function ms_products_show_purchases($bundle = NULL) {
   $attr = array('id' => 'ms-purchases-table');
   foreach ($result as $row) {
     $purchase = ms_products_purchase_load($row->id);
+    $order = ms_core_order_load($row->oid);
     $plan = ms_products_plan_load($purchase->sku);
     $actions = array(
       l(t('Edit'), 'admin/structure/ms_products/' . $bundle . '/purchases/edit/' . $purchase->id),
@@ -1756,6 +1909,10 @@ function ms_products_show_purchases($bundle = NULL) {
       array(
         'data' => $plan->name,
         'class' => array('ms_products_product_name'),
+      ),
+      array(
+        'data' => $order ? l('#' . $order->order_number, 'admin/moneyscripts/orders/view/' . $order->order_key) : t('N/A'),
+        'class' => array('ms_products_product_status'),
       ),
       array(
         'data' => ms_products_get_purchase_status_text($purchase->status),

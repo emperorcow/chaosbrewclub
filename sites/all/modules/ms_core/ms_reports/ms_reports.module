@@ -4,7 +4,7 @@
  * @file
  * Shows charts of MoneyScripts Modules stats.
  *
- * // TODO - Add a Default View that will show Taxes and Coupons reports.
+ * // @todo - Add a Default View that will show Taxes and Coupons reports.
  *
  * Copyright 2008-2013 MoneyScripts.net - Leighton Whiting
  */
@@ -94,7 +94,7 @@ function ms_reports_menu() {
 function ms_reports_make_date($day = 0, $mon = 0, $yr = 0) {
   $dt = localtime(REQUEST_TIME, TRUE);
   $unixnewtime = mktime(
-      0, 0, 0, $dt['tm_mon'] + 1 + $mon, $dt['tm_mday'] + $day, $dt['tm_year'] + 1900 + $yr);
+    0, 0, 0, $dt['tm_mon'] + 1 + $mon, $dt['tm_mday'] + $day, $dt['tm_year'] + 1900 + $yr);
   return $unixnewtime;
 }
 
@@ -213,8 +213,7 @@ function ms_reports_view_products() {
 
     $result = db_query("SELECT oid FROM {ms_orders} WHERE created >= :start AND created <= :end AND (status = :active OR status = :completed)",
       array(':start' => $start_time, ':end' => $end_time, ':active' => 'active', ':completed' => 'completed'));
-  }
-  else {
+  } else {
     $title = t('Product Sales Pie Chart: All time');
     $result = db_query("SELECT oid FROM {ms_orders} WHERE (status = :active OR status = :completed)",
       array(':active' => 'active', ':completed' => 'completed'));
@@ -233,10 +232,10 @@ function ms_reports_view_products() {
               'amount' => 0,
             );
           }
+
+          $data[$product->module . '-' . $product->id]['amount'] += (double)$product->amount;
           $data[$product->module . '-' . $product->id]['count'] += 1;
-          $data[$product->module . '-' . $product->id]['amount'] += $product->amount;
-        }
-        else {
+        } else {
           if (!isset($data[$order_product->module . '-' . $order_product->id])) {
             $data[$order_product->module . '-' . $order_product->id] = array(
               'count' => 0,
@@ -263,7 +262,7 @@ function ms_reports_view_products() {
   );
 
   $rows = array();
-  foreach ($data as $key => $item) {
+  foreach ($data as $item) {
     $rows[] = array(
       array(
         'type' => 'string',
@@ -485,9 +484,9 @@ function ms_reports_view_recurring() {
 
   $build['content']['ms_reports_links']['#markup'] = $links;
   $build['content']['ms_reports_total_adds']['#markup'] = '<p>' . t("Total Signups from %start to %end: @total",
-    array('%start' => format_date($limit_time, 'short'), '%end' => format_date(time(), 'short'), '@total' => $total_signups)) . '</p>';
+      array('%start' => format_date($limit_time, 'short'), '%end' => format_date(time(), 'short'), '@total' => $total_signups)) . '</p>';
   $build['content']['ms_reports_total_cancels']['#markup'] = '<p>' . t("Total Cancellations / Expirations from %start to %end: @total",
-    array('%start' => format_date($limit_time, 'short'), '%end' => format_date(time(), 'short'), '@total' => $total_cancels)) . '</p>';
+      array('%start' => format_date($limit_time, 'short'), '%end' => format_date(time(), 'short'), '@total' => $total_cancels)) . '</p>';
   $build['content']['ms_reports_charts']['#markup'] = $charts;
 
   return $build;
@@ -501,8 +500,6 @@ function ms_reports_view_sales() {
   $revenue = array();
   $adjustment_totals = array();
   $sales = array();
-  $data = array();
-  $limit_time = 0;
 
   switch ($view_type) {
     case 'YearlyRolling':
@@ -533,7 +530,7 @@ function ms_reports_view_sales() {
         array(':cart' => 'cart', ':rec_payment' => 'rec_payment', ':created' => $start_time));
       foreach ($result as $payment) {
         $date_name = format_date($payment->created, 'custom', 'M y');
-        $revenue[$date_name] += (float) $payment->amount;
+        $revenue[$date_name] += (float)$payment->amount;
 
         // Add up adjustment totals.
         $order = ms_core_order_load($payment->oid);
@@ -541,7 +538,7 @@ function ms_reports_view_sales() {
           if (!isset($adjustment_totals[$date_name][$adjustment->id])) {
             $adjustment_totals[$date_name][$adjustment->id] = 0;
           }
-          $adjustment_totals[$date_name][$adjustment->id] += (float) ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
+          $adjustment_totals[$date_name][$adjustment->id] += (float)ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
         }
 
         $sales[$date_name] += 1;
@@ -579,7 +576,7 @@ function ms_reports_view_sales() {
         if (!isset($sales[$date_name])) {
           $sales[$date_name] = 0;
         }
-        $revenue[$date_name] += (float) $payment->amount;
+        $revenue[$date_name] += (float)$payment->amount;
         $sales[$date_name] += 1;
 
         // Add up adjustment totals.
@@ -588,7 +585,7 @@ function ms_reports_view_sales() {
           if (!isset($adjustment_totals[$date_name][$adjustment->id])) {
             $adjustment_totals[$date_name][$adjustment->id] = 0;
           }
-          $adjustment_totals[$date_name][$adjustment->id] += (float) ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
+          $adjustment_totals[$date_name][$adjustment->id] += (float)ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
         }
       }
       $title = t('Sales Stats: @year', array('@year' => date('Y', $start_time)));
@@ -621,8 +618,7 @@ function ms_reports_view_sales() {
       if ($curr_month == 12) {
         $end_month = 1;
         $end_year = $curr_year + 1;
-      }
-      else {
+      } else {
         $end_year = $curr_year;
         $end_month = $curr_month + 1;
       }
@@ -631,7 +627,7 @@ function ms_reports_view_sales() {
         array(':cart' => 'cart', ':rec_payment' => 'rec_payment', ':start' => $start_time, ':end' => $end_time));
       foreach ($result as $payment) {
         $date_name = format_date($payment->created, 'custom', 'F d, Y');
-        $revenue[$date_name] += (float) $payment->amount;
+        $revenue[$date_name] += (float)$payment->amount;
         $sales[$date_name] += 1;
 
         // Add up adjustment totals.
@@ -640,7 +636,7 @@ function ms_reports_view_sales() {
           if (!isset($adjustment_totals[$date_name][$adjustment->id])) {
             $adjustment_totals[$date_name][$adjustment->id] = 0;
           }
-          $adjustment_totals[$date_name][$adjustment->id] += (float) ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
+          $adjustment_totals[$date_name][$adjustment->id] += (float)ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
         }
       }
       $title = t('Sales Stats: @monthandyear', array('@monthandyear' => format_date($start_time, 'custom', 'F, Y')));
@@ -662,7 +658,7 @@ function ms_reports_view_sales() {
         array(':cart' => 'cart', ':rec_payment' => 'rec_payment', ':created' => $start_time));
       foreach ($result as $payment) {
         $date_name = format_date($payment->created, 'custom', 'F d, Y');
-        $revenue[$date_name] += (float) $payment->amount;
+        $revenue[$date_name] += (float)$payment->amount;
         $sales[$date_name] += 1;
 
         // Add up adjustment totals.
@@ -671,7 +667,7 @@ function ms_reports_view_sales() {
           if (!isset($adjustment_totals[$date_name][$adjustment->id])) {
             $adjustment_totals[$date_name][$adjustment->id] = 0;
           }
-          $adjustment_totals[$date_name][$adjustment->id] += (float) ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
+          $adjustment_totals[$date_name][$adjustment->id] += (float)ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
         }
       }
       $title = t('Sales Stats: Last 30 Days');
@@ -694,7 +690,7 @@ function ms_reports_view_sales() {
         array(':cart' => 'cart', ':rec_payment' => 'rec_payment', ':created' => $start_time));
       foreach ($result as $payment) {
         $date_name = format_date($payment->created, 'custom', 'F d, Y');
-        $revenue[$date_name] += (float) $payment->amount;
+        $revenue[$date_name] += (float)$payment->amount;
         $sales[$date_name] += 1;
 
         // Add up adjustment totals
@@ -703,7 +699,7 @@ function ms_reports_view_sales() {
           if (!isset($adjustment_totals[$date_name][$adjustment->id])) {
             $adjustment_totals[$date_name][$adjustment->id] = 0;
           }
-          $adjustment_totals[$date_name][$adjustment->id] += (float) ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
+          $adjustment_totals[$date_name][$adjustment->id] += (float)ms_core_get_adjusted_price($adjustment, ms_core_get_order_products_total($order));
         }
       }
       $title = t('Sales Stats: Last 7 Days');
@@ -783,18 +779,18 @@ function ms_reports_view_sales() {
   }
 
   $build['content']['ms_reports_totals']['#markup'] = '<p>' . t("Total Revenue from %start to %end: @total",
-    array('%start' => format_date($start_time, 'short'), '%end' => format_date($end_time - 1, 'short'), '@total' => ms_core_format_money($total_revenue))) . '</p>';
+      array('%start' => format_date($start_time, 'short'), '%end' => format_date($end_time - 1, 'short'), '@total' => ms_core_format_money($total_revenue))) . '</p>';
   $build['content']['ms_reports_charts']['#markup'] = $charts;
 
   return $build;
 }
 
 /**
-* Implementation of hook_views_api().
-*/
+ * Implementation of hook_views_api().
+ */
 function ms_reports_views_api() {
   return array(
     'api' => 3.0,
-    'path' => drupal_get_path('module', 'ms_reports') .'/views'
+    'path' => drupal_get_path('module', 'ms_reports') . '/views'
   );
 }

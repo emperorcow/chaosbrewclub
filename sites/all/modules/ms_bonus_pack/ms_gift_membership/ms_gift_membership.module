@@ -14,16 +14,16 @@ function ms_gift_membership_help($path, $arg) {
   $output = '';
   switch ($path) {
     case "admin/help#ms_gift_membership":
-      $output = '<p>'.  t("The Gift Memberships module allows you to let your
-        users purchase 'Gift Memberships' for a friend.") .'</p>';
+      $output = '<p>' . t("The Gift Memberships module allows you to let your
+        users purchase 'Gift Memberships' for a friend.") . '</p>';
       break;
     case "gift/membership":
-      $output = '<p>'.  t("From here users can fill out the gift information,
+      $output = '<p>' . t("From here users can fill out the gift information,
         including the recipient name, email, delivery date and a message,
-        and then proceed to checkout to pay for the gift membership.") .'</p>';
+        and then proceed to checkout to pay for the gift membership.") . '</p>';
       break;
     case "gift/redeem":
-      $output = '<p>'.  t("Gift Recipients can redeem their gifts here.") .'</p>';
+      $output = '<p>' . t("Gift Recipients can redeem their gifts here.") . '</p>';
       break;
   }
   return $output;
@@ -41,7 +41,7 @@ function ms_gift_membership_cron() {
       array(
         '@receiver' => $gift_mem->receiver_email,
         '@giver' => $gift_mem->giver_email,
-        )));
+      )));
 
     // Send Email to Receiver
     drupal_mail('ms_gift_membership', 'receiver_email', $gift_mem->receiver_email, language_default(), $gift_mem);
@@ -55,7 +55,7 @@ function ms_gift_membership_cron() {
     ms_gift_membership_change_sent_date($gift_mem->id);
   }
 
-  $timeago = strtotime('-'. variable_get('ms_gift_membership_reminder_days', 7) .' days');
+  $timeago = strtotime('-' . variable_get('ms_gift_membership_reminder_days', 7) . ' days');
 
   // Send reminders that need to be sent
   $result = db_query("SELECT * FROM {ms_gift_memberships} WHERE status = :status AND sent_date < :time",
@@ -65,7 +65,7 @@ function ms_gift_membership_cron() {
       array(
         '@receiver' => $gift_mem->receiver_email,
         '@giver' => $gift_mem->giver_email,
-        )));
+      )));
 
     // Send Email to Receiver
     drupal_mail('ms_gift_membership', 'receiver_reminder', $gift_mem->receiver_email, language_default(), $gift_mem);
@@ -123,16 +123,16 @@ function ms_gift_membership_menu() {
     'page arguments' => array('ms_gift_membership_admin'),
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
-   );
-   $items['admin/moneyscripts/ms_gift_membership/settings'] = array(
+  );
+  $items['admin/moneyscripts/ms_gift_membership/settings'] = array(
     'title' => 'Gift Memberships Settings',
     'description' => 'Set the various Gift Memberships Settings here',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('ms_gift_membership_admin'),
     'access arguments' => array('access administration pages'),
     'type' => MENU_DEFAULT_LOCAL_TASK,
-   );
-   $items['admin/moneyscripts/ms_gift_membership/change/%/%'] = array(
+  );
+  $items['admin/moneyscripts/ms_gift_membership/change/%/%'] = array(
     'title' => 'Change Gift Membership Status',
     'page callback' => 'ms_gift_membership_change_status_page',
     'page arguments' => array(4, 5),
@@ -172,7 +172,7 @@ function ms_gift_membership_admin() {
     '#collapsible' => FALSE,
     '#collapsed' => FALSE,
   );
-  $form['main']['ms_gift_membership_allowed_plans'] = array( // FIXME - Migrate this setting.
+  $form['main']['ms_gift_membership_allowed_plans'] = array(
     '#type' => 'checkboxes',
     '#title' => t('Gift Memberships'),
     '#options' => ms_products_get_plans_list('ms_membership'),
@@ -348,7 +348,9 @@ function ms_gift_membership_admin() {
   );
 
   return system_settings_form($form);
-}//function admin settings
+}
+
+//function admin settings
 
 /**
  * Show all of the Gift Memberships, with filters
@@ -357,10 +359,10 @@ function ms_gift_membership_overview_page() {
   $output = '';
 
   // Add the CSS
-  drupal_add_css(drupal_get_path('module', 'ms_gift_membership') .'/ms_gift_membership.css');
+  drupal_add_css(drupal_get_path('module', 'ms_gift_membership') . '/ms_gift_membership.css');
 
   // Add JS
-  drupal_add_js(drupal_get_path('module', 'ms_gift_membership') .'/ms_gift_membership.js');
+  drupal_add_js(drupal_get_path('module', 'ms_gift_membership') . '/ms_gift_membership.js');
 
   $headers = array();
 
@@ -376,7 +378,7 @@ function ms_gift_membership_overview_page() {
 
   $query = db_select('ms_gift_memberships', 'g');
   $query->fields('g');
-  //$query->condition('g.status', array(3, 4), 'IN'); @todo - Add filter here.
+  //$query->condition('g.status', array(3, 4), 'IN'); @todo - Use views instead.
   $query = $query->extend('TableSort')->orderByHeader($headers);
 
   $pager_amount = 20;
@@ -399,8 +401,8 @@ function ms_gift_membership_overview_page() {
 
     $t_rows = array();
 
-    $t_rows[] = array('data' => date('M d, Y', $gift_mem->created), 'class' => array('ms_gift_membership_created'));
-    $t_rows[] = array('data' => date('M d, Y', $gift_mem->gift_date), 'class' => array('ms_gift_membership_gift_date'));
+    $t_rows[] = array('data' => format_date($gift_mem->created, 'short'), 'class' => array('ms_gift_membership_created'));
+    $t_rows[] = array('data' => format_date($gift_mem->gift_date, 'short'), 'class' => array('ms_gift_membership_gift_date'));
     $t_rows[] = array('data' => ms_gift_membership_get_gift_membership_status_text($gift_mem->status), 'class' => array('ms_gift_membership_status'));
     $t_rows[] = array('data' => $gift_mem->gift_code, 'class' => array('ms_gift_membership_code'));
     $t_rows[] = array('data' => $gift_mem->giver_name, 'class' => array('ms_gift_membership_giver_name'));
@@ -409,11 +411,11 @@ function ms_gift_membership_overview_page() {
     $t_rows[] = array('data' => $gift_mem->message, 'class' => array('ms_gift_membership_message'));
     $t_rows[] = array('data' => implode(' | ', $actions), 'class' => array('ms_gift_membership_actions'));
 
-    $rows[] = array('data' => $t_rows, 'class' => array('gift_row_'. $gift_mem->status), 'rel' => $gift_mem->id);
+    $rows[] = array('data' => $t_rows, 'class' => array('gift_row_' . $gift_mem->status), 'rel' => $gift_mem->id);
   }
 
   $output .= theme('table', array('header' => $headers, 'rows' => $rows, 'attributes' => $attr, 'empty' => t('No gift memberships.')));
-  $output .= "<div id='ms_gift_membership_ajax_loader' style='display:none;'><div><img src='/" . drupal_get_path('module', 'ms_core') .'/images/ajax-loader.gif' . "' /></div></div>";
+  $output .= "<div id='ms_gift_membership_ajax_loader' style='display:none;'><div><img src='/" . drupal_get_path('module', 'ms_core') . '/images/ajax-loader.gif' . "' /></div></div>";
   $build['content'] = array('#markup' => $output);
 
   // Add the pager
@@ -434,11 +436,16 @@ function ms_gift_membership_overview_page() {
  */
 function ms_gift_membership_get_gift_membership_status_text($status) {
   switch ($status) {
-    case 0: return t('Dormant');
-    case 1: return t('Sent');
-    case 2: return t('Opened');
-    case 3: return t('Pending');
-    case 4: return t('Mailed');
+    case 0:
+      return t('Dormant');
+    case 1:
+      return t('Sent');
+    case 2:
+      return t('Opened');
+    case 3:
+      return t('Pending');
+    case 4:
+      return t('Mailed');
   }
 }
 
@@ -490,10 +497,10 @@ function ms_gift_membership_get_plans() {
       $more_details = '';
 
       if (variable_get('ms_membership_show_membership_price', FALSE)) {
-        $more_details .= ' - '. ms_core_get_recurring_string($plan->recurring_schedule, $plan->cart_type == 'recurring');
+        $more_details .= ' - ' . ms_core_get_recurring_string($plan->recurring_schedule, $plan->cart_type == 'recurring');
       }
       if ($plan->description) {
-        $more_details .= " - <span id='md". $plan->sku ."' class='more_detailsDiv'>". $plan->description ."</span>";
+        $more_details .= " - <span id='md" . $plan->sku . "' class='more_detailsDiv'>" . $plan->description . "</span>";
       }
 
       $gift_plans[$plan->sku] = $plan->name . $more_details;
@@ -566,25 +573,22 @@ function ms_gift_membership_redeem_membership() {
             '@name' => $user->name,
             '!logout' => l(t('click here'), 'logout', array('query' => drupal_get_destination())),
             '!contact' => l(t('contact us'), 'contact'),
-            ));
-      }
-      else {
+          ));
+      } else {
         // Ask the user if they want to use the account to apply the membership to. Give option to logout.
         $html .= t("You are currently logged in as @name. If this is the account you wish to claim the gift for, click the Claim Gift button below. If this is not the account you wish to use to claim the gift, you can !logout to logout.",
           array(
             '@name' => $user->name,
             '!logout' => l('click here', 'logout', array('query' => drupal_get_destination())),
-            ));
+          ));
         $html .= drupal_render(drupal_get_form('ms_gift_membership_redeem_gift_form', $gift_mem));
       }
-    }
-    else {
+    } else {
       // Show a form for the user to enter their username, email, and password
       $html .= drupal_render(drupal_get_form('ms_gift_membership_redeem_gift_register_form', $gift_mem));
     }
     return $html;
-  }
-  else {
+  } else {
     return drupal_get_form('ms_gift_membership_enter_code_form');
   }
 }
@@ -641,18 +645,18 @@ function ms_gift_membership_enter_code_form_submit($form, &$form_state) {
 
   //drupal_set_message('<pre>'. print_r($gift_mem, TRUE) .'</pre>');
 
-  switch($gift_mem->status) {
+  switch ($gift_mem->status) {
     case 1:
     case 4:
       // Redirect to the redeem page if the gift card has already been activated
-      drupal_goto('gift/redeem/'. $gift_mem->gift_code);
-    break;
+      drupal_goto('gift/redeem/' . $gift_mem->gift_code);
+      break;
 
     case 0:
     case 3:
       drupal_set_message(t('This gift card has not yet been activated.'));
       return;
-    break;
+      break;
   }
 }
 
@@ -734,7 +738,7 @@ function ms_gift_membership_redeem_gift_register_form_validate($form, &$form_sta
   if ($email_account = user_load_by_mail($v['email1'])) {
     form_set_error('email1', t('The email address you entered is already being used by an account on this site.
     Please !login to the account associated with this email address before proceeding.',
-    array('!login' => l('log in', 'user/login', array('query' => drupal_get_destination())))
+      array('!login' => l('log in', 'user/login', array('query' => drupal_get_destination())))
     ));
   }
   // Verify Username is not being used
@@ -759,12 +763,12 @@ function ms_gift_membership_redeem_gift_register_form_submit($form, &$form_state
   $roles = array();
 
   $account = user_save('', array(
-    'name' => $name,
-    'mail' => $v['email1'],
-    'init' => $v['email1'],
-    'pass' => $pass,
-    'roles' => $roles,
-    'status' => 1
+      'name' => $name,
+      'mail' => $v['email1'],
+      'init' => $v['email1'],
+      'pass' => $pass,
+      'roles' => $roles,
+      'status' => 1
     )
   );
   $account->password = $pass;
@@ -882,8 +886,8 @@ function ms_gift_membership_redeem_gift_form_submit($form, &$form_state) {
  * Build Function for the Gift Membership Form
  */
 function ms_gift_membership_gift_membership_form($form, &$form_state) {
-  drupal_add_js(drupal_get_path('module', 'ms_gift_membership') .'/ms_gift_membership.js', 'module');
-  drupal_add_css(drupal_get_path('module', 'ms_gift_membership') .'/ms_gift_membership.css', 'module');
+  drupal_add_js(drupal_get_path('module', 'ms_gift_membership') . '/ms_gift_membership.js', 'module');
+  drupal_add_css(drupal_get_path('module', 'ms_gift_membership') . '/ms_gift_membership.css', 'module');
   $form['gift'] = array(
     '#type' => 'fieldset',
     '#title' => t('Gift Membership'),
@@ -1002,8 +1006,7 @@ function ms_gift_membership_gift_membership_form_validate($form, &$form_state) {
     if (!$v['receiver_address']) {
       form_set_error('receiver_address', t('You must enter a mailing address.'));
     }
-  }
-  else {
+  } else {
     // Validate the email addresses
     if (!valid_email_address($v['receiver_email'])) {
       form_set_error('receiver_email', t('You must enter a valid e-mail address.'));
@@ -1044,8 +1047,7 @@ function ms_gift_membership_gift_membership_form_submit($form, &$form_state) {
     ms_core_add_cart_product($product);
 
     ms_core_checkout();
-  }
-  else {
+  } else {
     drupal_set_message(t('Error: Invalid plan selected.'), 'error');
   }
 }
@@ -1067,8 +1069,8 @@ function ms_gift_membership_mail($key, &$message, $gift_mem) {
     'ms_gift_membership' => $gift_mem,
     'ms_products_plan' => $m_plan,
   );
-
-  if ($order = ms_core_order_load($gift_mem->oid)) {
+  $order = ms_core_order_load($gift_mem->oid);
+  if ($order) {
     $payment = ms_core_get_last_payment($order);
     $tokens['ms_core_order'] = $order;
     $tokens['ms_core_payment'] = $payment;
@@ -1076,42 +1078,45 @@ function ms_gift_membership_mail($key, &$message, $gift_mem) {
     $tokens['user'] = $account;
   }
 
+  $body = '';
+  $subject = '';
+
   switch ($key) {
     case 'purchase_email':
       $subject = variable_get('ms_gift_membership_gift_purchase_mail_subject', '');
       $body = variable_get('ms_gift_membership_gift_purchase_mail_body', '');
-    break;
+      break;
 
     case 'purchase_email_mail':
       $subject = variable_get('ms_gift_membership_gift_purchase_mail_mail_subject', '');
       $body = variable_get('ms_gift_membership_gift_purchase_mail_mail_body', '');
-    break;
+      break;
 
     case 'purchase_email_mail_admin':
       $subject = t('New Gift Membership Pending');
       $body = t('A gift membership has been purchased and needs to be mailed. See the overview page for details: !link',
         array('!link' => url('admin/moneyscripts/ms_gift_membership/overview', array('absolute' => TRUE))));
-    break;
+      break;
 
     case 'receiver_email':
       $subject = variable_get('ms_gift_membership_receiver_gift_mail_subject', '');
       $body = variable_get('ms_gift_membership_receiver_gift_mail_body', '');
-    break;
+      break;
 
     case 'giver_email':
       $subject = variable_get('ms_gift_membership_giver_gift_mail_subject', '');
       $body = variable_get('ms_gift_membership_giver_gift_mail_body', '');
-    break;
+      break;
 
     case 'receiver_reminder':
       $subject = variable_get('ms_gift_membership_gift_receiver_reminder_mail_subject', '');
       $body = variable_get('ms_gift_membership_gift_receiver_reminder_mail_body', '');
-    break;
+      break;
 
     case 'giver_reminder':
       $subject = variable_get('ms_gift_membership_gift_giver_reminder_mail_subject', '');
       $body = variable_get('ms_gift_membership_gift_giver_reminder_mail_body', '');
-    break;
+      break;
   }
 
   // Replace the Tokens
@@ -1132,7 +1137,7 @@ function ms_gift_membership_token_info() {
       'name' => t('Gift Membership'),
       'description' => t('Gift Membership Variables'),
       'needs-data' => 'ms_gift_membership',
-      ),
+    ),
   );
 
   $tokens = array(
@@ -1221,7 +1226,7 @@ function ms_gift_membership_tokens($type, $tokens, $data = array(), $options = a
           $replacements[$original] = $plan->name;
           break;
         case 'redeemUrl':
-          $replacements[$original] = url('gift/redeem/'. $object->gift_code, array('absolute' => TRUE));
+          $replacements[$original] = url('gift/redeem/' . $object->gift_code, array('absolute' => TRUE));
           break;
       }
     }
@@ -1241,7 +1246,7 @@ function ms_gift_membership_ms_order_payment($type, $product, $order, $payment) 
   if ($product->module == 'ms_gift_membership') {
     if (variable_get('ms_core_debug_mode', FALSE)) {
       watchdog('ms_gift_membership', 'Acting on a Gift Membership Payment. Here are the details: !product',
-        array('!product' => '<pre>'. print_r($product, TRUE) .'</pre>'));
+        array('!product' => '<pre>' . print_r($product, TRUE) . '</pre>'));
     }
 
     $account = user_load($order->uid);
@@ -1255,25 +1260,21 @@ function ms_gift_membership_ms_order_payment($type, $product, $order, $payment) 
 
       // Remove the gift membership record
       db_query("DELETE FROM {ms_gift_memberships} WHERE oid = :oid", array(':oid' => $order->oid));
-    }
-    else {
+    } else {
       // Create the Gift Membership object
-      $gift_mem = (object) $product->data;
+      $gift_mem = (object)$product->data;
       $gift_mem->status = $gift_mem->send_mail ? 3 : 0;
       $gift_mem->oid = $order->oid;
       $gift_mem->created = time();
-      $gift_mem->gift_date = strtotime($product->data['gift_date']['year'] .'-'. $product->data['gift_date']['month'] .'-'. $product->data['gift_date']['day']);
+      $gift_mem->gift_date = strtotime($product->data['gift_date']['year'] . '-' . $product->data['gift_date']['month'] . '-' . $product->data['gift_date']['day']);
 
       if ($gift_mem->send_mail) {
-        while (TRUE) {
+        $code = ms_core_get_random_key(6);
+        while (ms_gift_membership_load_gift_membership_by_code($code)) {
           $code = ms_core_get_random_key(6);
-          if (!ms_gift_membership_load_gift_membership_by_code($code)) {
-            break;
-          }
         }
         $gift_mem->gift_code = $code;
-      }
-      else {
+      } else {
         $gift_mem->gift_code = strtoupper(drupal_get_token(serialize($gift_mem)));
       }
 
@@ -1284,13 +1285,11 @@ function ms_gift_membership_ms_order_payment($type, $product, $order, $payment) 
         if ($gift_mem->send_mail) {
           drupal_mail('ms_gift_membership', 'purchase_email_mail', $gift_mem->giver_email, user_preferred_language($account), $gift_mem);
           drupal_mail('ms_gift_membership', 'purchase_email_mail_admin', variable_get('site_mail', ''), language_default(), $gift_mem);
-        }
-        else {
+        } else {
           drupal_mail('ms_gift_membership', 'purchase_email', $gift_mem->giver_email, user_preferred_language($account), $gift_mem);
         }
-      }
-      else {
-        watchdog('ms_gift_membership', t('ERROR: The gift membership record could not be written.'), WATCHDOG_ERROR);
+      } else {
+        ms_core_log_error('ms_gift_membership', 'ERROR: The gift membership record could not be written.');
       }
     }
   }
@@ -1304,19 +1303,13 @@ function ms_gift_membership_ms_product_load($module, $id) {
     $m_plan = ms_products_plan_load($id);
 
     if ($m_plan->sku) {
-      $product->type = $m_plan->cart_type;
+      $product = ms_core_new_product($m_plan->name, 'ms_membership', $m_plan->sku, $m_plan->recurring_schedule['main_amount'], $m_plan->cart_type);
 
       // Set the Recurring Schedule Settings
       $product->recurring_schedule = $m_plan->recurring_schedule;
 
       // Store the Data Overrides
       $product->data = $m_plan->data;
-
-      // Add the product variables
-      $product->name = $m_plan->name;
-      $product->module = 'ms_membership';
-      $product->amount = $m_plan->recurring_schedule['main_amount'];
-      $product->id = $m_plan->sku;
 
       return $product;
     }
@@ -1327,7 +1320,7 @@ function ms_gift_membership_ms_product_load($module, $id) {
  * Implements hook_ms_product_id_change().
  */
 function ms_gift_membership_ms_product_id_change($old_id, $new_id) {
-  list($new_id_module, $new_id_id) = explode('-', $new_id);
+  list(, $new_id_id) = explode('-', $new_id);
   list($old_id_module, $old_id_id) = explode('-', $old_id);
   if ($old_id_module == 'ms_membership') {
     db_update('ms_gift_memberships')
@@ -1336,5 +1329,17 @@ function ms_gift_membership_ms_product_id_change($old_id, $new_id) {
       ))
       ->condition('mpid', $new_id_id)
       ->execute();
+
+    $allowed_plans = variable_get('ms_gift_membership_allowed_plans', array());
+    $new_plans = variable_get('ms_gift_membership_allowed_plans', array());
+
+    foreach ($allowed_plans as $id => $plan) {
+      if ($id == $old_id) {
+        unset($new_plans[$id]);
+        $new_plans[$new_id] = $plan;
+      }
+    }
+
+    variable_set('ms_gift_membership_allowed_plans', $new_plans);
   }
 }

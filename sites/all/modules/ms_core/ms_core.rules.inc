@@ -229,7 +229,7 @@ function ms_core_action_add_cart_adjustment($values) {
  */
 function ms_core_action_remove_cart_adjustment($values) {
   $adjustment = ms_core_rules_create_adjustment($values);
-  return ms_core_remove_cart_adjustment($adjustment);
+  ms_core_remove_cart_adjustment($adjustment);
 }
 
 /**
@@ -325,8 +325,7 @@ function ms_core_rules_event_info() {
       'label' => t('Payment Gateway Chosen'),
       'group' => 'MS Core',
       'help' => t("Triggered when a Payment Gateway is Chosen for Checkout"),
-      'variables' => array(
-      ),
+      'variables' => array(),
     ),
   );
 
@@ -393,7 +392,8 @@ function ms_core_rules_create_adjustment($values) {
 /**
  * UI for textual data.
  */
-class RulesDataUIMsAdjustment extends RulesDataUI implements RulesDataDirectInputFormInterface {
+class RulesDataUIMsAdjustment extends RulesDataUI implements RulesDataDirectInputFormInterface
+{
 
   public static function getDefaultMode() {
     return 'input';

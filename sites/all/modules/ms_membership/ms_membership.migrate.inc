@@ -25,7 +25,7 @@ function _ms_membership_migrate_rules($skus) {
     'ms_membership' => 'ms_products_purchase',
   );
 
-  $rules = rules_config_load_multiple(FALSE);
+  $rules = rules_config_load_multiple();
 
   foreach ($rules as $rule) {
     $export_string = $rule->export();
@@ -55,8 +55,7 @@ function _ms_membership_migrate_rules($skus) {
       if (!empty($export_object[$rule->name])) {
         $rule->import($export_object[$rule->name]);
         $rule->save();
-      }
-      else {
+      } else {
         drupal_set_message(t("Unable to reimport rule @name. It may need to be manually recreated.", array('@name' => $rule->name)));
       }
     }
@@ -287,4 +286,6 @@ function _ms_membership_migrate_status($status) {
     case 4:
       return 'expiring';
   }
+
+  return 'expired';
 }

@@ -27,26 +27,6 @@ function ms_paypal_wps_help($path, $arg) {
 }
 
 /**
- * Access Test that always returns true, for IPNs
- */
-function ms_paypal_wps_access_test() {
-  // The PayPal IPN should always have access
-  return TRUE;
-}
-
-/**
- * Access test to see if the user can modify an order
- */
-function ms_paypal_wps_modify_test($oid, $id) {
-  global $user;
-  $order = ms_core_order_load($oid);
-  if ($order->uid == $user->uid) {
-    return TRUE;
-  }
-  return FALSE;
-}
-
-/**
  * Implements hook_menu().
  */
 function ms_paypal_wps_menu() {
@@ -54,41 +34,41 @@ function ms_paypal_wps_menu() {
   $items['paypal/backend'] = array(
     'title' => 'Backend',
     'page callback' => 'ms_paypal_wps_ipn',
-    'access callback' => 'ms_paypal_wps_access_test',
+    'access callback' => TRUE,
     'type' => MENU_CALLBACK,
   );
   if (variable_get('ms_paypal_wps_lm_paypal_support', TRUE)) {
     $items['lm_paypal/ipn'] = array(
       'title' => 'Backend',
       'page callback' => 'ms_paypal_wps_lm_paypal_ipn',
-      'access callback' => 'ms_paypal_wps_access_test',
+      'access callback' => TRUE,
       'type' => MENU_CALLBACK,
     );
   }
   $items['ms/checkout/paypal_wps'] = array(
     'title' => 'Checkout',
     'page callback' => 'ms_paypal_wps_initiate_payment',
-    'access callback' => 'ms_paypal_wps_access_test',
+    'access callback' => TRUE,
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
   );
   $items['ms_paypal_wps/thank-you'] = array(
     'title' => 'Thank You',
     'page callback' => 'ms_paypal_wps_thankyou_page',
-    'access callback' => 'ms_paypal_wps_access_test',
+    'access callback' => TRUE,
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
   );
   $items['ms_paypal_wps/check_ipn_status/%'] = array(
     'title' => 'Check IPN Status',
     'page callback' => 'ms_paypal_wps_ipn_ajax_page',
     'page arguments' => array(2),
-    'access callback' => 'ms_paypal_wps_access_test',
+    'access callback' => TRUE,
     'type' => MENU_CALLBACK,
   );
   $items['ms_paypal_wps/modify/%/%'] = array(
     'title' => 'Modify Payments',
     'page callback' => 'ms_paypal_wps_modify_page',
     'page arguments' => array(2, 3),
-    'access callback' => 'ms_paypal_wps_modify_test',
+    'access callback' => 'ms_core_modify_test',
     'access arguments' => array(2, 3),
     'type' => MENU_VISIBLE_IN_BREADCRUMB,
   );
@@ -140,7 +120,7 @@ function ms_paypal_wps_admin() {
     '#description' => t("Fill in the text you wish the user to see for the Paypal Jump page. They will be redirected in 5 seconds if Javascript is enabled, otherwise a button is provided for them to click."),
     '#required' => FALSE,
     '#default_value' => variable_get('ms_paypal_wps_paypal_page_text',
-t("Please wait for a few seconds, your registration is being processed and you will be redirected to PayPal's secure payment page.
+      t("Please wait for a few seconds, your registration is being processed and you will be redirected to PayPal's secure payment page.
 <br/><br/>
 If you are not automatically redirected to the PayPal payment page within 5 seconds, click below:
 <br/><br/>")),
@@ -270,7 +250,10 @@ If you are not automatically redirected to the PayPal payment page within 5 seco
  * Receive the IPN from PayPal for LM PayPal migration
  */
 function ms_paypal_wps_lm_paypal_ipn() {
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_paypal_wps') . '/includes/ms_paypal_wps_class.php';
+  if (!variable_get('ms_paypal_wps_lm_paypal_support', TRUE)) {
+    return;
+  }
+  require_once 'includes/ms_paypal_wps_class.php';
   $ipn = ms_paypal_wps_ipn_handler($_POST);
 
   if ($ipn) {
@@ -287,13 +270,11 @@ function ms_paypal_wps_lm_paypal_ipn() {
 
     if ($order->oid) {
       ms_paypal_wps_process_ipn($ipn, $order, 'lm_paypal');
-    }
-    else {
+    } else {
       ms_core_log_error('ms_paypal_wps', 'Error loading the order for a LM_PayPal IPN: !data',
         array('!data' => ms_core_print_r($ipn)));
     }
-  }
-  else {
+  } else {
     ms_core_log_error('ms_paypal_wps', 'Error: An LM PayPal IPN has Failed Validation. This may be from a spoofed IPN or an attempt to hack. Here are the details: Data: !data',
       array('!data' => ms_core_print_r($_REQUEST)));
   }
@@ -303,8 +284,6 @@ function ms_paypal_wps_lm_paypal_ipn() {
  * Process the IPN by adding a Payment record to an Order
  */
 function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
-  $check_valid = TRUE;
-
   // Declare Defaults:
   if (!isset($ipn['recurring_payment_id'])) {
     $ipn['recurring_payment_id'] = '';
@@ -335,23 +314,6 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
   $payment->recurring_id = (isset($ipn['subscr_id']) AND $ipn['subscr_id']) ? $ipn['subscr_id'] : $ipn['recurring_payment_id'];
   $payment->data = $ipn;
 
-  if (isset($ipn['period3'])) {
-    $main_period = explode(' ', $ipn['period3']);
-    $trial_period = isset($ipn['period1']) ? explode(' ', $ipn['period1']) : array('', '');
-    $payment->recurring_schedule = array(
-      'total_occurrences' => (isset($ipn['recur_times'])) ? $ipn['recur_times'] : 0,
-      'main_amount' => $ipn['mc_amount3'],
-      'main_length' => $main_period[0],
-      'main_unit' => $main_period[1],
-      'has_trial' => ($trial_period[0]) ? TRUE : FALSE,
-      'trial_amount' => isset($ipn['mc_amount1']) ? $ipn['mc_amount1'] : '',
-      'trial_length' => $trial_period[0],
-      'trial_unit' => $trial_period[1],
-    );
-  }
-  else {
-    $payment->recurring_schedule = array();
-  }
   // Update the address
   $payment->billing_address = array(
     'street' => isset($ipn['address_street']) ? $ipn['address_street'] : '',
@@ -374,16 +336,36 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
       }
 
       // Add the Payment to the Order.
-      ms_core_enter_payment($payment, FALSE);
+      ms_core_enter_payment($payment);
       break;
 
     case 'rec_signup':
+      // Validate the recurring schedule.
+      $main_period = explode(' ', $ipn['period3']);
+      $trial_period = isset($ipn['period1']) ? explode(' ', $ipn['period1']) : array('', '');
+      $recurring_schedule = array(
+        'total_occurrences' => (isset($ipn['recur_times'])) ? $ipn['recur_times'] : 0,
+        'main_amount' => isset($ipn['mc_amount3']) ? $ipn['mc_amount3'] : isset($ipn['amount3']) ? $ipn['amount3'] : 0,
+        'main_length' => $main_period[0],
+        'main_unit' => $main_period[1],
+        'has_trial' => ($trial_period[0]) ? TRUE : FALSE,
+        'trial_amount' => isset($ipn['mc_amount1']) ? $ipn['mc_amount1'] : isset($ipn['amount1']) ? $ipn['amount1'] : 0,
+        'trial_length' => $trial_period[0],
+        'trial_unit' => $trial_period[1],
+      );
+      if (!ms_core_valid_payment($order, $payment->type, $recurring_schedule)) {
+        drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+        ms_core_log_error('ms_paypal_wps', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+          array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($ipn)));
+        $payment->type = 'rec_failed';
+        ms_core_enter_payment($payment);
+        return FALSE;
+      }
       // Because only 1 IPN is sent of rec_signup, we need to check if the
       // order has a free trial, and if so, enter this payment for it.
       if ($order->recurring_schedule['has_trial'] && $recurring_schedule['trial_amount'] == 0) {
-        ms_core_enter_payment($payment, $check_valid);
-      }
-      else {
+        ms_core_enter_payment($payment);
+      } else {
         // Do nothing since the rec_payment will insert a rec_signup if it's the
         // first payment. This is so the new system for calculating next payment
         // works.
@@ -396,17 +378,24 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
       ms_core_log_error('ms_paypal_wps', 'Failed Payment: ' . ms_core_print_r($payment));
 
       // Add the Payment to the Order
-      ms_core_enter_payment($payment, $check_valid);
+      ms_core_enter_payment($payment);
       break;
 
     case 'cart':
+      // Check that the currency and amount match the order.
+      if (!ms_core_valid_payment($order, $payment->type, $payment->amount) || $payment->currency != $order->currency) {
+        drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+        ms_core_log_error('ms_paypal_wps', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+          array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($ipn)));
+        return FALSE;
+      }
       switch ($ipn['payment_status']) {
         case 'Completed':
           ms_core_add_history_item($order, 0, t('Payment of @amount submitted through PayPal.', array('@amount' => ms_core_format_money($payment->amount))));
           ms_core_add_history_item($order, 0, t('PayPal IPN reported a payment of @amount.', array('@amount' => ms_core_format_money($payment->amount))), TRUE);
 
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Processed':
@@ -415,9 +404,9 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
 
         case 'Canceled_Reversal':
           ms_core_add_history_item($order, 0, t('PayPal has cancelled the reversal and returned !amount to your account.',
-              array('!amount' => ms_core_format_money($payment->amount))), TRUE);
+            array('!amount' => ms_core_format_money($payment->amount))), TRUE);
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Denied':
@@ -425,14 +414,14 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
 
           $payment->type = 'failed';
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Failed':
           ms_core_add_history_item($order, 0, t("The customer's attempted payment from a bank account failed."), TRUE);
           $payment->type = 'failed';
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Voided':
@@ -440,7 +429,7 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
 
           $payment->type = 'failed';
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Expired':
@@ -448,7 +437,7 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
 
           $payment->type = 'failed';
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Reversed':
@@ -457,7 +446,7 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
 
           $payment->type = 'reversal';
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Refunded':
@@ -467,7 +456,7 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
             $payment->amount -= $ipn['mc_fee'];
           }
           // Add the Payment to the Order
-          ms_core_enter_payment($payment, $check_valid);
+          ms_core_enter_payment($payment);
           break;
 
         case 'Pending':
@@ -477,14 +466,13 @@ function ms_paypal_wps_process_ipn($ipn, $order, $gateway) {
             ms_core_add_history_item($order, 0, t('PayPal IPN reported a pending payment of @amount. Completing order.', array('@amount' => ms_core_format_money($payment->amount))), TRUE);
 
             // Add the Payment to the Order
-            ms_core_enter_payment($payment, FALSE);
-          }
-          else {
+            ms_core_enter_payment($payment);
+          } else {
             ms_core_add_history_item($order, 0, t('Payment is pending at PayPal: @reason', array('@reason' => _ms_paypal_wps_pending_message(check_plain($_POST['pending_reason'])))), TRUE);
 
             $payment->type = 'pending';
             // Add the Payment to the Order
-            ms_core_enter_payment($payment, $check_valid);
+            ms_core_enter_payment($payment);
           }
           break;
       }
@@ -531,14 +519,14 @@ function _ms_paypal_wps_pending_message($reason) {
  * Receive the IPN from PayPal, verify it, and load the associated order
  */
 function ms_paypal_wps_ipn() {
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_paypal_wps') . '/includes/ms_paypal_wps_class.php';
+  require_once 'includes/ms_paypal_wps_class.php';
   $ipn = ms_paypal_wps_ipn_handler($_POST);
 
   // Let's make sure it is UTF-8. If it isn't, let's try to convert it
   if ($ipn AND array_key_exists('charset', $ipn) && ($charset = $ipn['charset'])) {
     // Try to convert if not utf-8
-    if($charset != 'utf-8') {
-      foreach($ipn as $key => &$value) {
+    if ($charset != 'utf-8') {
+      foreach ($ipn as &$value) {
         $value = mb_convert_encoding($value, 'utf-8', $charset);
       }
       // And store the charset values for future reference
@@ -558,13 +546,11 @@ function ms_paypal_wps_ipn() {
 
     if ($order->oid) {
       ms_paypal_wps_process_ipn($ipn, $order, 'ms_paypal_wps');
-    }
-    else {
+    } else {
       ms_core_log_error('ms_paypal_wps', 'Error loading the order for a Payment IPN: !data',
         array('!data' => ms_core_print_r($ipn)));
     }
-  }
-  else {
+  } else {
     ms_core_log_error('ms_paypal_wps', 'Error: An IPN has Failed Validation. This may be from a spoofed IPN or an attempt to hack. Here are the details: Data: !data',
       array('!data' => ms_core_print_r($_REQUEST)), WATCHDOG_WARNING);
   }
@@ -581,8 +567,7 @@ function ms_paypal_wps_get_cancel_url($order) {
       if (ms_core_variable_get('ms_paypal_wps_use_sandbox', FALSE, $order)) {
         $cancel_url = url("https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_subscr-find&alias="
           . urlencode($payment->data['receiver_id']));
-      }
-      else {
+      } else {
         $cancel_url = url("https://www.paypal.com/cgi-bin/webscr?cmd=_subscr-find&alias="
           . urlencode($payment->data['receiver_id']));
       }
@@ -616,8 +601,7 @@ function ms_paypal_wps_modify_page($oid, $id) {
     $order->recurring_schedule = $new_product->recurring_schedule;
     // Start the Payment
     $output = ms_paypal_wps_get_button($order, ms_core_get_order_title($order, 64, 2));
-  }
-  else {
+  } else {
     $order->recurring_schedule = $new_product->recurring_schedule;
     // Start the Payment
     $output = ms_paypal_wps_get_button($order, ms_core_get_order_title($order, 64, 2), 2);
@@ -634,7 +618,7 @@ function ms_paypal_wps_ms_core_payment_gateway() {
     'name' => 'PayPal Website Payments Standard',
     'display_name' => 'PayPal',
     'description' => '<img src="https://www.paypal.com/en_US/i/logo/PayPal_mark_37x23.gif" style="position: relative; top: 5px; margin-right: 4px;" />'
-       . t('PayPal - pay without sharing your financial information.'),
+      . t('PayPal - pay without sharing your financial information.'),
     'module' => 'ms_paypal_wps',
     'cards' => array('visa', 'mc', 'discover', 'amex', 'echeck', 'paypal'),
     'currency' => array('AUD', 'BRL', 'CAD', 'CZK', 'DKK', 'EUR', 'HKD', 'HUF', 'ILS', 'JPY', 'MYR', 'MXN', 'NOK', 'NZD', 'PHP', 'PLN', 'GBP', 'SGD', 'SEK', 'CHF', 'TWD', 'THB', 'TRY', 'USD'),
@@ -680,17 +664,16 @@ function ms_paypal_wps_get_type($txn) {
  */
 function ms_paypal_wps_get_button($order, $title, $modify = NULL) {
   ms_core_log('ms_paypal_wps', 'Creating a new PayPal button: Order: !data',
-      array('!data' => ms_core_print_r($order)));
+    array('!data' => ms_core_print_r($order)));
 
   // Use the correct link for Sandbox
   if (ms_core_variable_get('ms_paypal_wps_use_sandbox', FALSE, $order)) {
     $ipn_link = 'https://www.sandbox.paypal.com/cgi-bin/webscr';
-  }
-  else {
+  } else {
     $ipn_link = 'https://www.paypal.com/cgi-bin/webscr';
   }
 
-  require_once DRUPAL_ROOT . '/' . drupal_get_path('module', 'ms_paypal_wps') . '/includes/ms_paypal_wps_class.php';
+  require_once 'includes/ms_paypal_wps_class.php';
 
   $data = array();
 
@@ -845,13 +828,12 @@ function ms_paypal_wps_ipn_handler($ipn_vars) {
   if ($payment->verify()) {
     $ipn = $payment->ipn;
     return $ipn;
-  }
-  else {
+  } else {
     // Let's make sure it is UTF-8. If it isn't, let's try to convert it
-    if(array_key_exists('charset', $ipn_vars) && ($charset = $ipn_vars['charset'])) {
+    if (array_key_exists('charset', $ipn_vars) && ($charset = $ipn_vars['charset'])) {
       // Try to convert if not utf-8
-      if($charset != 'utf-8') {
-        foreach($ipn_vars as $key => &$value) {
+      if ($charset != 'utf-8') {
+        foreach ($ipn_vars as &$value) {
           $value = mb_convert_encoding($value, 'utf-8', $charset);
         }
         // And store the charset values for future reference
@@ -943,16 +925,16 @@ function ms_paypal_wps_thankyou_page() {
   $output = '';
   $ajax_img = base_path() . drupal_get_path('module', 'ms_core') . '/images/ajax-bar-loader.gif';
   $output .= "<div style='text-align:center;width:100%;'>"
-   . t('Your order is being processed. Please allow up to 2 minutes for this process to complete.')
-   . "</div>";
+    . t('Your order is being processed. Please allow up to 2 minutes for this process to complete.')
+    . "</div>";
   $output .= "<div style='text-align:center;width:100%;'>"
-   . t('Thank you for your patience.')
-   . "</div>";
+    . t('Thank you for your patience.')
+    . "</div>";
 
   $output .= "<div class='ajax_loader' style='margin: 15px 0 0;clear:both;width:100%;text-align:center;'><img src='$ajax_img' alt='Loading' /></div>";
   $output .= "<div class='ms_paypal_wps_landing_click_here'>"
     . t('If you have waited for over one minute, please !click.',
-       array('!click' => l(t('click here'), 'ms/thankyou')))
+      array('!click' => l(t('click here'), 'ms/thankyou')))
     . "</div>";
 
   return $output;
@@ -977,8 +959,7 @@ function ms_paypal_wps_ipn_ajax_page($unique_key) {
       array('!key' => $unique_key));
     $data['result'] = 'error';
     $data['error'] = t("There was an error loading the order. Please contact a site administrator.");
-  }
-  else {
+  } else {
     // Check if the payment has been recorded yet
     if (isset($_REQUEST['txn_id']) AND $txn_id = $_REQUEST['txn_id']) {
       $data['result'] = 'failure';
@@ -1001,6 +982,8 @@ function ms_paypal_wps_ipn_ajax_page($unique_key) {
               ms_core_log_error('ms_paypal_wps', 'A payment has failed.');
               ms_core_add_history_item($order, 0, t('Payment failed.'), TRUE);
               drupal_set_message(t('The order could not be charged. Please contact a site administrator.'));
+              break;
+
             case 'Pending':
               ms_core_log_error('ms_paypal_wps', 'A payment was marked as pending. The reason was: @reason',
                 array('@reason' => _ms_paypal_wps_pending_message($payment->data['pending_reason'])), WATCHDOG_WARNING);
@@ -1010,14 +993,12 @@ function ms_paypal_wps_ipn_ajax_page($unique_key) {
           }
         }
       }
-    }
-    else {
+    } else {
       if ($order->uid && count($order->payments)) {
         // The order has a user id and is ready to go
         $data['result'] = 'success';
         $data['status'] = 'Unable to determine status';
-      }
-      else {
+      } else {
         $data['result'] = 'failure';
       }
     }

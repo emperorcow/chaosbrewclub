@@ -41,13 +41,12 @@ function ms_ep_banklink_redirect_form($form, MsOrder $order, $method) {
   );
 
   $VK['VK_MAC'] = ms_ep_banklink_create_signature($VK, ms_core_variable_get($method . '_merchant_private_key', '', $order),
-       ms_core_variable_get($method . '_merchant_private_key_passphrase', '', $order));
+    ms_core_variable_get($method . '_merchant_private_key_passphrase', '', $order));
 
   $VK['VK_LANG'] = 'EST';
   if ($method == 'ms_ep_swedbank') {
     $VK['VK_ENCODING'] = 'UTF-8';
-  }
-  else {
+  } else {
     $VK['VK_CHARSET'] = 'UTF-8'; // Seems that Pangalink uses this instead of VK_ENCODING
   }
   $VK['VK_RETURN'] = ms_core_get_checkout_return_url($order);
@@ -69,39 +68,41 @@ function ms_ep_banklink_redirect_form($form, MsOrder $order, $method) {
 
   return $form;
 }
+
 /**
  * Create verify signature.
  */
 function ms_ep_banklink_verify_signature($VK, $order) {
   $VK_MAC = $VK['VK_MAC'];
   $signature = base64_decode($VK_MAC);
+  $data = NULL;
   switch ($VK['VK_SERVICE']) {
     case '1101':
       $data = ms_ep_banklink_str_pad($VK['VK_SERVICE']) .
-      ms_ep_banklink_str_pad($VK['VK_VERSION']) .
-      ms_ep_banklink_str_pad($VK['VK_SND_ID'])  .
-      ms_ep_banklink_str_pad($VK['VK_REC_ID']) .
-      ms_ep_banklink_str_pad($VK['VK_STAMP']) .
-      ms_ep_banklink_str_pad($VK['VK_T_NO']) .
-      ms_ep_banklink_str_pad($VK['VK_AMOUNT']) .
-      ms_ep_banklink_str_pad($VK['VK_CURR']) .
-      ms_ep_banklink_str_pad($VK['VK_REC_ACC']) .
-      ms_ep_banklink_str_pad($VK['VK_REC_NAME']) .
-      ms_ep_banklink_str_pad($VK['VK_SND_ACC']) .
-      ms_ep_banklink_str_pad($VK['VK_SND_NAME']) .
-      ms_ep_banklink_str_pad($VK['VK_REF']) .
-      ms_ep_banklink_str_pad($VK['VK_MSG']) .
-      ms_ep_banklink_str_pad($VK['VK_T_DATE']);
+        ms_ep_banklink_str_pad($VK['VK_VERSION']) .
+        ms_ep_banklink_str_pad($VK['VK_SND_ID']) .
+        ms_ep_banklink_str_pad($VK['VK_REC_ID']) .
+        ms_ep_banklink_str_pad($VK['VK_STAMP']) .
+        ms_ep_banklink_str_pad($VK['VK_T_NO']) .
+        ms_ep_banklink_str_pad($VK['VK_AMOUNT']) .
+        ms_ep_banklink_str_pad($VK['VK_CURR']) .
+        ms_ep_banklink_str_pad($VK['VK_REC_ACC']) .
+        ms_ep_banklink_str_pad($VK['VK_REC_NAME']) .
+        ms_ep_banklink_str_pad($VK['VK_SND_ACC']) .
+        ms_ep_banklink_str_pad($VK['VK_SND_NAME']) .
+        ms_ep_banklink_str_pad($VK['VK_REF']) .
+        ms_ep_banklink_str_pad($VK['VK_MSG']) .
+        ms_ep_banklink_str_pad($VK['VK_T_DATE']);
       break;
 
     case '1901':
       $data = ms_ep_banklink_str_pad($VK['VK_SERVICE']) .
-      ms_ep_banklink_str_pad($VK['VK_VERSION']) .
-      ms_ep_banklink_str_pad($VK['VK_SND_ID']) .
-      ms_ep_banklink_str_pad($VK['VK_REC_ID']) .
-      ms_ep_banklink_str_pad($VK['VK_STAMP']) .
-      ms_ep_banklink_str_pad($VK['VK_REF']) .
-      ms_ep_banklink_str_pad($VK['VK_MSG']);
+        ms_ep_banklink_str_pad($VK['VK_VERSION']) .
+        ms_ep_banklink_str_pad($VK['VK_SND_ID']) .
+        ms_ep_banklink_str_pad($VK['VK_REC_ID']) .
+        ms_ep_banklink_str_pad($VK['VK_STAMP']) .
+        ms_ep_banklink_str_pad($VK['VK_REF']) .
+        ms_ep_banklink_str_pad($VK['VK_MSG']);
       break;
   }
   $pubkey = openssl_get_publickey(ms_core_variable_get($order->gateway . '_bank_public_key', '', $order));
@@ -154,8 +155,7 @@ function ms_ep_banklink_get_reference_number($str) {
   }
   if (($sum % 10) != 0) {
     $jrk = (10 - ($sum % 10));
-  }
-  else {
+  } else {
     $jrk = 0;
   }
   return "$str$jrk";

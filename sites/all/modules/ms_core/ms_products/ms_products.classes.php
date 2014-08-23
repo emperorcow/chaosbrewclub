@@ -7,7 +7,8 @@
 /**
  * MsProductsPlan class
  */
-class MsProductsPlan {
+class MsProductsPlan
+{
   // Declare properties.
   public $uid = 0;
   public $sku = '';
@@ -81,7 +82,7 @@ class MsProductsPlan {
       'grant_credit' => TRUE,
       'change_plan_options' => TRUE,
     );
-    if (!is_null($bundle) && $bundle_info = ms_products_get_bundle($bundle)) {
+    if (!is_null($bundle) && ($bundle_info = ms_products_get_bundle($bundle))) {
       // Add translatable string defaults
       $this->signup_mail_subject = t("Thank you for Signing Up!");
       $this->signup_mail_body = t("Dear [ms_core_order:customerName],
@@ -131,8 +132,7 @@ Sincerely,
       foreach ($bundle_info['emails'] as $email_name => $email_info) {
         if (!empty($email_info['extra'])) {
           $this->data['emails'][$email_name] = $email_info;
-        }
-        else {
+        } else {
           if (isset($email_info['subject'])) {
             $this->{$email_name . '_mail_subject'} = $email_info['subject'];
           }
@@ -145,9 +145,39 @@ Sincerely,
   }
 
   public function initialize() {
+    // Add the plan fields.
+    if (isset($this->pid)) {
+      field_attach_load('ms_products_plan', array($this->pid => $this));
+    }
     $this->primeRecurringSchedule();
     $this->decodeEmails();
     $this->addCustomFields();
+
+    // Pass everything through the translation function.
+    $this->name = ms_core_translate('plan:' . $this->sku . ':' . 'name', $this->name, 'ms_products_plan');
+    $this->description = ms_core_translate('plan:' . $this->sku . ':' . 'description', $this->description, 'ms_products_plan');
+    $this->recurring_schedule['main_amount'] = ms_core_translate('plan:' . $this->sku . ':' . 'main_amount', $this->recurring_schedule['main_amount'], 'ms_products_plan');
+    $this->recurring_schedule['trial_amount'] = ms_core_translate('plan:' . $this->sku . ':' . 'trial_amount', $this->recurring_schedule['trial_amount'], 'ms_products_plan');
+    $this->signup_mail_subject = ms_core_translate('plan:' . $this->sku . ':' . 'signup_mail_subject', $this->signup_mail_subject, 'ms_products_plan');
+    $this->signup_mail_body = ms_core_translate('plan:' . $this->sku . ':' . 'signup_mail_body', $this->signup_mail_body, 'ms_products_plan');
+    $this->expiring_mail_subject = ms_core_translate('plan:' . $this->sku . ':' . 'expiring_mail_subject', $this->expiring_mail_subject, 'ms_products_plan');
+    $this->expiring_mail_body = ms_core_translate('plan:' . $this->sku . ':' . 'expiring_mail_body', $this->expiring_mail_body, 'ms_products_plan');
+    $this->eot_mail_subject = ms_core_translate('plan:' . $this->sku . ':' . 'eot_mail_subject', $this->eot_mail_subject, 'ms_products_plan');
+    $this->eot_mail_body = ms_core_translate('plan:' . $this->sku . ':' . 'eot_mail_body', $this->eot_mail_body, 'ms_products_plan');
+    $this->cancel_mail_subject = ms_core_translate('plan:' . $this->sku . ':' . 'cancel_mail_subject', $this->cancel_mail_subject, 'ms_products_plan');
+    $this->cancel_mail_body = ms_core_translate('plan:' . $this->sku . ':' . 'cancel_mail_body', $this->cancel_mail_body, 'ms_products_plan');
+    $this->modify_mail_subject = ms_core_translate('plan:' . $this->sku . ':' . 'modify_mail_subject', $this->modify_mail_subject, 'ms_products_plan');
+    $this->modify_mail_body = ms_core_translate('plan:' . $this->sku . ':' . 'modify_mail_body', $this->modify_mail_body, 'ms_products_plan');
+
+    if (!empty($this->data['emails'])) {
+      foreach ($this->data['emails'] as $email_name => &$email_info) {
+        $email_info['subject'] = ms_core_translate('plan:' . $this->sku . ':' . $email_name . '_mail_subject', $email_info['subject'], 'ms_products_plan');
+        $email_info['body'] = ms_core_translate('plan:' . $this->sku . ':' . $email_name . '_mail_body', $email_info['body'], 'ms_products_plan');
+      }
+    }
+
+    // Give other modules a chance to add data to the product plan.
+    drupal_alter('ms_products_plan_load', $this);
   }
 
   private function decodeEmails() {
@@ -178,7 +208,7 @@ Sincerely,
 
   private function addCustomFields() {
     // Add custom elements.
-    if (!empty($this->bundle) && $bundle_info = ms_products_get_bundle($this->bundle)) {
+    if (!empty($this->bundle) && ($bundle_info = ms_products_get_bundle($this->bundle))) {
       foreach ($bundle_info['plan_fields'] as $custom_field => $custom_field_info) {
         $this->$custom_field = isset($this->data[$custom_field]) ? $this->data[$custom_field] : $custom_field_info['#default_value'];
       }
@@ -205,8 +235,7 @@ Sincerely,
         $this->recurring_schedule['trial_amount'] = ($this->recurring_schedule['fixed_date_discount']) ? ms_products_calculate_prorated_amount($this->recurring_schedule['fixed_date_type'], $this->recurring_schedule['fixed_date_string'], $this->recurring_schedule['main_amount']) : $this->recurring_schedule['main_amount'];
         $this->recurring_schedule['trial_length'] = ms_products_calculate_days_left($this->recurring_schedule['fixed_date_type'], $this->recurring_schedule['fixed_date_string']);
         $this->recurring_schedule['trial_unit'] = 'D';
-      }
-      else {
+      } else {
         $this->recurring_schedule['total_occurrences'] = 1;
         $this->recurring_schedule['main_amount'] = ($this->recurring_schedule['fixed_date_discount']) ? ms_products_calculate_prorated_amount($this->recurring_schedule['fixed_date_type'], $this->recurring_schedule['fixed_date_string'], $this->recurring_schedule['main_amount']) : $this->recurring_schedule['main_amount'];
         $this->recurring_schedule['main_length'] = ms_products_calculate_days_left($this->recurring_schedule['fixed_date_type'], $this->recurring_schedule['fixed_date_string']);
@@ -223,8 +252,7 @@ Sincerely,
     // Update or insert a new plan.
     if (isset($this->pid) && !is_null($this->pid)) {
       $result = drupal_write_record('ms_products_plans', $this, 'pid');
-    }
-    else {
+    } else {
       $result = drupal_write_record('ms_products_plans', $this);
     }
 
@@ -233,9 +261,9 @@ Sincerely,
     db_delete('ms_products_plan_options')
       ->condition('sku', $this->sku)
       ->execute();
-    foreach ($this->plan_options as $option_name => $option_info) {
+    foreach ($this->plan_options as $option_info) {
       // Create a new record.
-      $option_info = (object) $option_info;
+      $option_info = (object)$option_info;
       $option_info->sku = $this->sku;
       drupal_write_record('ms_products_plan_options', $option_info);
     }
@@ -247,13 +275,15 @@ Sincerely,
 /**
  * MsProductsPurchase class
  */
-class MsProductsPurchase {
+class MsProductsPurchase
+{
   // Declare properties.
   public $id = NULL;
   public $oid = 0;
   public $uid = 0;
   public $bundle = '';
   public $sku = '';
+  public $pid = 0;
   public $status = '';
   public $expiration = 0;
   public $start_date = 0;
@@ -277,7 +307,7 @@ class MsProductsPurchase {
     // Add the purchase fields.
     field_attach_load('ms_products_purchase', array($this->id => $this));
 
-    if (!empty($this->bundle) && $bundle_info = ms_products_get_bundle($this->bundle)) {
+    if (!empty($this->bundle) && ($bundle_info = ms_products_get_bundle($this->bundle))) {
       foreach ($bundle_info['purchase_fields'] as $field_name => $field_info) {
         $this->fields[$field_name] = ms_products_get_purchase_field($this->bundle, $this->id, $field_name);
       }
@@ -300,27 +330,24 @@ class MsProductsPurchase {
     if (!is_null($this->id)) {
       drupal_write_record('ms_products_purchases', $this, 'id');
       field_attach_update('ms_products_purchase', $this);
-    }
-    else {
+    } else {
       drupal_write_record('ms_products_purchases', $this);
       field_attach_insert('ms_products_purchase', $this);
     }
 
     // Next, save the options.
     if (!empty($this->options)) {
-      foreach ($this->options as $option_name => $option_info) {
+      foreach ($this->options as $option_info) {
         if (isset($option_info->id)) {
           if ($option_info == 'inactive') {
             db_delete('ms_products_purchase_options')
               ->condition('id', $option_info->id)
               ->execute();
-          }
-          else {
+          } else {
             // Update the existing record.
             drupal_write_record('ms_products_purchase_options', $option_info, 'id');
           }
-        }
-        elseif ($option_info->status != 'inactive') {
+        } elseif ($option_info->status != 'inactive') {
           // Create a new record.
           $option_info->pid = $this->id;
           drupal_write_record('ms_products_purchase_options', $option_info);

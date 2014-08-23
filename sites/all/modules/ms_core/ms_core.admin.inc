@@ -63,9 +63,6 @@ function ms_core_gateway_settings_form($form, &$form_state, $name) {
   }
 
   if (!empty($gateway['saved_cards_support'])) {
-    // -----------------------------
-    // Email Settings
-    // -----------------------------
     $gateway['settings']['email'] = array(
       '#type' => 'fieldset',
       '#title' => t('Email Settings'),
@@ -96,6 +93,33 @@ function ms_core_gateway_settings_form($form, &$form_state, $name) {
     $gateway['settings']['email'][$module . '_billing_error_token_help']['tokens'] = array(
       '#theme' => 'token_tree',
       '#token_types' => array('ms_core_payment_profile', 'user', 'ms_core_order'),
+      '#dialog' => TRUE,
+    );
+
+    $gateway['settings']['email'][$module . '_expiring_card_reminder_mail_subject'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Card Expiring Soon Email Subject'),
+      '#required' => FALSE,
+      '#default_value' => variable_get($module . '_expiring_card_reminder_mail_subject',
+        t("Your card is expiring soon!")),
+    );
+    $gateway['settings']['email'][$module . '_expiring_card_reminder_mail_body'] = array(
+      '#type' => 'textarea',
+      '#title' => t('Card Expiring Soon Email Body'),
+      '#description' => t("Leave blank to not send an email."),
+      '#required' => FALSE,
+      '#default_value' => variable_get($module . '_expiring_card_reminder_mail_body',
+        t("Your credit card [ms_core_payment_profile:cc_num] is expiring soon.
+        To avoid interruption of service, please update your billing
+        information here: [ms_core_payment_profile:update_url]
+
+  Sincerely,
+  Site Admin")),
+    );
+
+    $gateway['settings']['email'][$module . '_expiring_card_reminder_token_help']['tokens'] = array(
+      '#theme' => 'token_tree',
+      '#token_types' => array('ms_core_payment_profile', 'user'),
       '#dialog' => TRUE,
     );
   }

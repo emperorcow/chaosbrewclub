@@ -37,11 +37,11 @@
           var full_name = $('#edit-cc-first-name').val() + $('#edit-cc-last-name').val();
           Stripe.createToken({
             name: full_name,
-            address_line1: $('#edit-billing-address1').val(),
-            address_line2: $('#edit-billing-address2').val(),
-            address_state: $('#edit-billing-state').val(),
-            address_zip: $('#edit-billing-zip').val(),
-            address_country: $('#edit-billing-country').val(),
+            address_line1: $('#edit-billing-address1').val() ? $('#edit-billing-address1').val() : '',
+            address_line2: $('#edit-billing-address2').val() ? $('#edit-billing-address2').val() : '',
+            address_state: $('#edit-billing-state').val() ? $('#edit-billing-state').val() : '',
+            address_zip: $('#edit-billing-zip').val() ? $('#edit-billing-zip').val() : '',
+            address_country: $('#edit-billing-country').val() ? $('#edit-billing-country').val() : '',
             number: $('#edit-cc-number').val(),
             cvc: $('#edit-cc-cvv').val(),
             exp_month: $('#edit-cc-exp-month').val(),

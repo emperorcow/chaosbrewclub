@@ -19,15 +19,15 @@ function ms_stripe_ms_process_recurring_payment($recurring_schedule, $order) {
   Stripe::setApiKey(variable_get('ms_stripe_secret_key', ''));
 
   module_load_include('inc', 'ms_core', 'ms_core.recurring');
-  if ((!empty($order->data['payment_profile_id']) && $payment_profile = ms_core_payment_profile_load($order->data['payment_profile_id']))
-    || $payment_profile = ms_core_payment_profile_load_by_oid($order->oid)) {
+  if ((!empty($order->data['payment_profile_id']) && ($payment_profile = ms_core_payment_profile_load($order->data['payment_profile_id'])))
+    || ($payment_profile = ms_core_payment_profile_load_by_oid($order->oid))) {
     try {
       // Load the customer.
       $customer = Stripe_Customer::retrieve($payment_profile->remote_id);
       // Process the payment.
       $response = Stripe_Charge::create(
         array(
-          'amount' => round($recurring_schedule->main_amount * 100), // Amount in cents.
+          'amount' => ms_stripe_convert_amount($recurring_schedule->main_amount, $order->currency),
           'currency' => strtolower($order->currency),
           'customer' => $customer->id,
           'description' => t('Order Number: @order_number', array('@order_number' => $order->order_number)),
@@ -41,7 +41,6 @@ function ms_stripe_ms_process_recurring_payment($recurring_schedule, $order) {
       $payment->amount = $recurring_schedule->main_amount;
       $payment->currency = $order->currency;
       $payment->data = array('response' => $response);
-      $payment->recurring_schedule = $order->recurring_schedule;
 
       // Add the Payment to the Order
       return $payment;
@@ -52,6 +51,32 @@ function ms_stripe_ms_process_recurring_payment($recurring_schedule, $order) {
   }
 
   return FALSE;
+}
+
+/**
+ * Converts the amount to the smallest units based on the currency.
+ */
+function ms_stripe_convert_amount($amount, $currency) {
+  switch ($currency) {
+    case 'BIF':
+    case 'CLP':
+    case 'DJF':
+    case 'GNF':
+    case 'JPY':
+    case 'KMF':
+    case 'KRW':
+    case 'MGA':
+    case 'PYG':
+    case 'RWF':
+    case 'VUV':
+    case 'XAF':
+    case 'XOF':
+    case 'XPF':
+      return round($amount);
+
+    default:
+      return round($amount * 100);
+  }
 }
 
 /**
@@ -76,6 +101,16 @@ function ms_stripe_admin() {
     '#description' => t('Publishable API Key. Get your key from https://stripe.com/'),
     '#default_value' => variable_get('ms_stripe_public_key', ''),
   );
+  $form['main']['ms_stripe_checkout_method'] = array(
+    '#type' => 'radios',
+    '#title' => t('Checkout method'),
+    '#description' => t('Choose whether to show a form embedded on your site, or the new Stripe Checkout button.'),
+    '#options' => array(
+      'form' => t('Checkout form'),
+      'button' => t('Checkout button'),
+    ),
+    '#default_value' => variable_get('ms_stripe_checkout_method', 'form'),
+  );
 
   return $form;
 }
@@ -87,13 +122,13 @@ function ms_stripe_ms_core_payment_gateway() {
   $gateways['ms_stripe'] = array(
     'name' => 'Stripe',
     'display_name' => t('Credit Card'),
-    'cards' => array('visa', 'mc', 'discover', 'amex'),
+    'cards' => variable_get('ms_stripe_allowed_cards', array('visa', 'mc', 'discover', 'amex')),
     'description' => t('Pay by Credit Card'),
     'module' => 'ms_stripe',
-    'currency' => array('USD', 'CAD', 'EUR', 'AUD'),
     'settings' => ms_stripe_admin(),
     'recurring_schedule_support' => TRUE,
     'saved_cards_support' => TRUE,
+    'multi_recurring' => TRUE,
     'checkout_form' => 'ms_stripe_payment_submit_form',
   );
 
@@ -152,41 +187,7 @@ function ms_stripe_saved_method_checkout($payment_profile, $order, $data) {
     // Load the customer
     $customer = Stripe_Customer::retrieve($payment_profile->remote_id);
 
-    // If there is a trial period, then we charge the trial amount
-    if ($order->order_type == 'recurring') {
-      if ($order->recurring_schedule['has_trial']) {
-        $amount = round($order->recurring_schedule['trial_amount'], 2);
-      }
-      else {
-        $amount = round($order->recurring_schedule['main_amount'], 2);
-      }
-    }
-    else {
-      $amount = round($order->amount, 2);
-    }
-
-    $payment = ms_core_new_payment($order->oid, 'ms_stripe', 'cart');
-    $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
-    $payment->recurring_id = $order->oid;
-
-    if ($amount > 0) {
-      // charge the Customer instead of the card
-      $response = Stripe_Charge::create(
-        array(
-          'amount' => round($amount * 100), // amount in cents
-          'currency' => strtolower($order->currency),
-          'customer' => $customer->id,
-          'description' => t('Order Number: @order_number', array('@order_number' => $order->order_number)),
-        )
-      );
-
-      $payment->transaction = $response->id;
-      $payment->data = array('response' => $response);
-    }
-    else {
-      $payment->transaction = ms_core_generate_transaction_id(10);
-    }
+    $payment = ms_stripe_do_customer_payment($customer, $order);
 
     // Enter the address and things as saved in the payment profile
     $payment->billing_address = array(
@@ -200,20 +201,9 @@ function ms_stripe_saved_method_checkout($payment_profile, $order, $data) {
     $payment->first_name = check_plain($payment_profile->first_name);
     $payment->last_name = check_plain($payment_profile->last_name);
 
-    switch ($order->order_type) {
-      case 'recurring':
-        $payment->type = 'rec_signup';
-        $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
-        break;
+    ms_core_enter_payment($payment);
 
-      case 'cart':
-        $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
-        break;
-    }
-
-    // Reload the order to save the payment_profile_id
+    // Reload the order to save the payment_profile_id.
     $order = ms_core_order_load($order->oid);
     $data = array(
       'payment_profile_id' => $payment_profile->id,
@@ -236,51 +226,90 @@ function ms_stripe_saved_method_checkout($payment_profile, $order, $data) {
  * Build the Checkout Form
  */
 function ms_stripe_payment_submit_form($form, $form_state, $order) {
-  ms_core_get_cc_form($form, $order, array('visa', 'mc', 'discover', 'amex'));
-  ms_core_get_billing_form($form, $order);
-
-  $form['#attributes']['class'] = array('ms_stripe_payment_form');
-  $form['#id'] = 'ms-stripe-payment-submit-form';
-
-  $form['billing']['billing_state']['#required'] = FALSE;
-
   $form['ms_oid'] = array(
     '#type' => 'value',
     '#value' => $order->oid,
   );
 
-  // Include the stripe.js from stripe.com.
-  $form['#attached']['js'][] = array(
-    'data' => 'https://js.stripe.com/v1/',
-    'type' => 'external'
-  );
+  if (variable_get('ms_stripe_checkout_method', 'form') == 'form') {
+    ms_core_get_cc_form($form, $order, variable_get('ms_stripe_allowed_cards', array('visa', 'mc', 'discover', 'amex')));
+    ms_core_get_billing_form($form, $order);
 
-  $form['#attached']['js'][] = array(
-    'data' => array('stripe' => array('publicKey' => variable_get('ms_stripe_public_key', ''))),
-    'type' => 'setting'
-  );
+    $form['#attributes']['class'] = array('ms_stripe_payment_form');
+    $form['#id'] = 'ms-stripe-payment-submit-form';
 
-  // Load ms_stripe.js.
-  $form['#attached']['js'][] = drupal_get_path('module', 'ms_stripe') . '/ms_stripe.js';
+    $form['billing']['billing_state']['#required'] = FALSE;
 
-  // To display validation errors.
-  $form['errors'] = array(
-    '#type' => 'markup',
-    '#markup' => '<div class="payment-errors"></div>',
-  );
+    // Include the stripe.js from stripe.com.
+    $form['#attached']['js'][] = array(
+      'data' => 'https://js.stripe.com/v1/',
+      'type' => 'external'
+    );
 
-  // To display ajax loader.
-  $form['ajax_loader'] = array(
-    '#type' => 'markup',
-    '#markup' => "<div id='ms_ajax_loader' style='display:none;'><div><img src='/" . drupal_get_path('module', 'ms_core') .'/images/ajax-loader.gif' . "' /></div></div>",
-  );
+    $form['#attached']['js'][] = array(
+      'data' => array('stripe' => array('publicKey' => variable_get('ms_stripe_public_key', ''))),
+      'type' => 'setting'
+    );
 
-  $form['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Pay Now'),
-  );
+    // Load ms_stripe.js.
+    $form['#attached']['js'][] = drupal_get_path('module', 'ms_stripe') . '/ms_stripe.js';
 
-  $form['#validate'][] = 'ms_core_cc_form_validate';
+    // To display validation errors.
+    $form['errors'] = array(
+      '#type' => 'markup',
+      '#markup' => '<div class="payment-errors"></div>',
+    );
+
+    // To display ajax loader.
+    $form['ajax_loader'] = array(
+      '#type' => 'markup',
+      '#markup' => "<div id='ms_ajax_loader' style='display:none;'><div><img src='/" . drupal_get_path('module', 'ms_core') .'/images/ajax-loader.gif' . "' /></div></div>",
+    );
+
+    $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Pay Now'),
+    );
+
+    $form['#validate'][] = 'ms_core_cc_form_validate';
+  }
+  else {
+    $form['#id'] = 'ms-stripe-payment-submit-form';
+
+    // Include the stripe.js from stripe.com.
+    $form['#attached']['js'][] = array(
+      'data' => 'https://checkout.stripe.com/checkout.js',
+      'type' => 'external'
+    );
+
+    $amount = round($order->amount, 2);
+
+    $form['#attached']['js'][] = array(
+      'data' => array('stripe' => array(
+        'publicKey' => variable_get('ms_stripe_public_key', ''),
+        'orderTitle' => $order->title,
+        'orderDescription' => '',
+        'orderEmail' => $order->email_address,
+        'orderTotal' => ms_stripe_convert_amount($amount, $order->currency),
+        'orderCurrency' => strtolower($order->currency),
+       )),
+      'type' => 'setting'
+    );
+    $form['#attached']['js'][] = drupal_get_path('module', 'ms_stripe') . '/ms_stripe_checkout.js';
+    $form['#attached']['css'][] = drupal_get_path('module', 'ms_stripe') . '/ms_stripe.css';
+
+    $form['token_field'] = array(
+      '#type' => 'hidden',
+      '#attributes' => array(
+        'class' => array('ms_stripe_token_field'),
+      ),
+    );
+    $form['payment_button'] = array(
+      '#type' => 'markup',
+      '#markup' => "<a id='ms_stripe_payment_button' href='#' class='stripe-connect'><span>" . t('Pay with card') . "</span></a>"
+    );
+  }
+
   $form['#validate'][] = 'ms_stripe_payment_submit_form_validate';
 
   return $form;
@@ -299,83 +328,46 @@ function ms_stripe_payment_submit_form_validate($form, &$form_state) {
   // Set stripe secret key.
   Stripe::setApiKey(variable_get('ms_stripe_secret_key', ''));
 
-  $token = $_REQUEST['stripeToken'];
+  $token = '';
+
+  if (isset($_REQUEST['stripeToken'])) {
+    $token = $_REQUEST['stripeToken'];
+  }
+  else if (isset($v['token_field'])) {
+    $token = $v['token_field'];
+  }
 
   try {
     // Create a Customer
     $customer = Stripe_Customer::create(array(
       "card" => $token,
-      "description" => t("Customer record for @first_name @last_name - @email",
+      "description" => isset($v['cc_first_name']) ? t("Customer record for @first_name @last_name - @email",
         array(
           '@first_name' => $v['cc_first_name'],
           '@last_name' => $v['cc_last_name'],
           '@email' => $v['billing_email'],
         )
-      ),
-      "email" => $v['billing_email'],
+      ) : '',
+      "email" => isset($v['billing_email']) ? $v['billing_email'] : $order->email_address,
     ));
 
-    // If there is a trial period, then we charge the trial amount
-    if ($order->order_type == 'recurring') {
-      if ($order->recurring_schedule['has_trial']) {
-        $amount = round($order->recurring_schedule['trial_amount'], 2);
-      }
-      else {
-        $amount = round($order->recurring_schedule['main_amount'], 2);
-      }
-    }
-    else {
-      $amount = round($order->amount, 2);
-    }
+    $payment = ms_stripe_do_customer_payment($customer, $order);
 
-    $payment = ms_core_new_payment($order->oid, 'ms_stripe', 'cart');
-    $payment->currency = $order->currency;
-    $payment->recurring_schedule = $order->recurring_schedule;
-    $payment->recurring_id = $order->oid;
     // Update the address
     $payment->billing_address = array(
-      'street' => check_plain($v['billing_address1']),
-      'city' => check_plain($v['billing_city']),
-      'state' => check_plain($v['billing_state']),
-      'zip' => check_plain($v['billing_zip']),
-      'country' => check_plain($v['billing_country']),
-      'phone' => check_plain($v['billing_phone']),
+      'street' => isset($v['billing_address1']) ? check_plain($v['billing_address1']) : '',
+      'city' => isset($v['billing_city']) ? check_plain($v['billing_city']) : '',
+      'state' => isset($v['billing_state']) ? check_plain($v['billing_state']) : '',
+      'zip' => isset($v['billing_zip']) ? check_plain($v['billing_zip']) : '',
+      'country' => isset($v['billing_country']) ? check_plain($v['billing_country']) : '',
+      'phone' => isset($v['billing_phone']) ? check_plain($v['billing_phone']) : '',
     );
 
     // Update the contact details
-    $payment->first_name = check_plain($v['cc_first_name']);
-    $payment->last_name = check_plain($v['cc_last_name']);
+    $payment->first_name = isset($v['cc_first_name']) ? check_plain($v['cc_first_name']) : '';
+    $payment->last_name = isset($v['cc_last_name']) ? check_plain($v['cc_last_name']) : '';
 
-    // Charge the Customer instead of the card
-    if ($amount > 0) {
-      $response = Stripe_Charge::create(
-        array(
-          'amount' => round($amount * 100), // amount in cents
-          'currency' => strtolower($order->currency),
-          'customer' => $customer->id,
-          'description' => t('Order Number: @order_number', array('@order_number' => $order->order_number)),
-        )
-      );
-
-      $payment->transaction = $response->id;
-      $payment->data = array('response' => $response);
-    }
-    else {
-      $payment->transaction = ms_core_generate_transaction_id(10);
-    }
-
-    switch ($order->order_type) {
-      case 'recurring':
-        $payment->type = 'rec_signup';
-        $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
-        break;
-
-      case 'cart':
-        $payment->amount = $amount;
-        ms_core_enter_payment($payment, FALSE);
-        break;
-    }
+    ms_core_enter_payment($payment);
 
     // Reload the order to get the uid
     $order = ms_core_order_load($order->oid);
@@ -387,20 +379,20 @@ function ms_stripe_payment_submit_form_validate($form, &$form_state) {
       'remote_id' => $customer->id,
       'module' => 'ms_stripe',
       'status' => 1,
-      'first_name' => $v['cc_first_name'],
-      'last_name' => $v['cc_last_name'],
-      'address' => $v['billing_address1'],
-      'city' => $v['billing_city'],
-      'state' => $v['billing_state'],
-      'zip' => $v['billing_zip'],
-      'country' => $v['billing_country'],
-      'phone' => $v['billing_phone'],
-      'email' => $v['billing_email'],
+      'first_name' => $payment->first_name,
+      'last_name' => $payment->last_name,
+      'address' => $payment->billing_address['street'],
+      'city' => $payment->billing_address['city'],
+      'state' => $payment->billing_address['state'],
+      'zip' => $payment->billing_address['zip'],
+      'country' => $payment->billing_address['country'],
+      'phone' => $payment->billing_address['phone'],
+      'email' => $order->email_address,
       'fax' => '',
-      'cc_type' => $v['cc_type'],
-      'cc_num' => $v['cc_number'],
-      'exp_month' => $v['cc_exp_month'],
-      'exp_year' => $v['cc_exp_year'],
+      'cc_type' => isset($v['cc_type']) ? $v['cc_type'] : strtolower($customer->cards->data[0]->type),
+      'cc_num' => isset($v['cc_type']) ? $v['cc_number'] : $customer->cards->data[0]->last4,
+      'exp_month' => isset($v['cc_type']) ? $v['cc_exp_month'] : $customer->cards->data[0]->exp_month,
+      'exp_year' => isset($v['cc_type']) ? $v['cc_exp_year'] : $customer->cards->data[0]->exp_year,
     );
     $payment_profile = ms_core_payment_profile_save($payment_profile);
 
@@ -443,36 +435,36 @@ function ms_stripe_mail($key, &$message, $seed_vars) {
 
       $subject = variable_get('ms_stripe_billing_error_subject', '');
       $body = variable_get('ms_stripe_billing_error_body', '');
+
+      // Replace the Tokens
+      $message['subject'] = token_replace($subject,
+        array(
+          'ms_core_order' => $order,
+          'ms_core_payment_profile' => $payment_profile,
+          'user' => $account,
+        ));
+      $message['body'][] = token_replace($body,
+        array(
+          'ms_core_order' => $order,
+          'ms_core_payment_profile' => $payment_profile,
+          'user' => $account,
+        ));
       break;
   }
-
-  // Replace the Tokens
-  $message['subject'] = token_replace($subject,
-    array(
-    'ms_core_order' => $order,
-    'ms_core_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
-  $message['body'][] = token_replace($body,
-    array(
-    'ms_core_order' => $order,
-    'ms_core_payment_profile' => $payment_profile,
-    'user' => $account,
-  ));
 }
 
 /**
  * Implements hook_ms_core_modification_charge().
  *
- * Charges the amount and approves or denies the modification
+ * Charges the amount and approves or denies the modification.
  *
  * @param $amount
- *   The amount that should be charged before approval
+ *   The amount that should be charged before approval.
  * @param $order
- *   The $order object
+ *   The $order object.
  *
- * @return
- *   TRUE if the amount was charged successfully, FALSE otherwise
+ * @return bool
+ *   TRUE if the amount was charged successfully, FALSE otherwise.
  */
 function ms_stripe_ms_core_modification_charge($amount, $order) {
   // Load the payment profile
@@ -486,9 +478,9 @@ function ms_stripe_ms_core_modification_charge($amount, $order) {
 
       // Try to charge the payment
       $customer = Stripe_Customer::retrieve($payment_profile->remote_id);
-      $response = Stripe_Charge::create(
+      Stripe_Charge::create(
         array(
-          'amount' => round($amount * 100), // amount in cents
+          'amount' => ms_stripe_convert_amount($amount, $order->currency),
           'currency' => strtolower($order->currency),
           'customer' => $customer->id,
           'description' => t('Modification - Order Number: @order_number', array('@order_number' => $order->order_number)),
@@ -585,4 +577,67 @@ function ms_stripe_payment_profile_edit_form_validate($form, &$form_state) {
     form_set_error('cc_number', t('Error: @details',
       array('@details' => $e->getMessage())));
   }
+}
+
+/**
+ * Processes a payment for an order and a customer.
+ *
+ * @param $customer
+ *   The Stripe customer object.
+ * @param $order
+ *   The MsOrder object.
+ *
+ * @return bool|MsPayment
+ *   The MsPayment object or false.
+ */
+function ms_stripe_do_customer_payment($customer, $order) {
+  // Require needed Stripe library.
+  require_once libraries_get_path('stripe-php') . '/lib/Stripe.php';
+
+  // Set stripe secret key.
+  Stripe::setApiKey(variable_get('ms_stripe_secret_key', ''));
+
+  try {
+    $amount = round($order->amount, 2);
+    $payment = ms_core_new_payment($order->oid, 'ms_stripe', $order->order_type == 'cart' ? 'cart' : 'rec_signup', $amount, $order->currency);
+    $payment->recurring_id = $order->oid;
+
+    if ($amount > 0) {
+      // Give other modules a chance to handle the charge.
+      $modules = module_implements('ms_stripe_charge_handler');
+      $response = FALSE;
+      foreach ($modules as $module) {
+        $response = module_invoke($module, 'ms_stripe_charge_handler', $amount, $order, $customer);
+        if ($response) {
+          break;
+        }
+      }
+      if (!$response) {
+        $response = Stripe_Charge::create(
+          array(
+            'amount' => ms_stripe_convert_amount($amount, $order->currency),
+            'currency' => strtolower($order->currency),
+            'customer' => $customer->id,
+            'description' => t('Order Number: @order_number', array('@order_number' => $order->order_number)),
+          )
+        );
+      }
+
+      $payment->transaction = $response->id;
+      $payment->data = array('response' => $response);
+    }
+    else {
+      $payment->transaction = ms_core_generate_transaction_id(10);
+    }
+
+    return $payment;
+  }
+  catch (Exception $e) {
+    ms_core_log('ms_stripe', 'Following error received when processing card @stripe_error.', array('@stripe_error' => $e->getMessage()));
+    form_set_error('cc_number', t('We received the following error processing your card.
+      Please enter your information again or try a different card. @stripe_error',
+      array('@stripe_error' => $e->getMessage())));
+  }
+
+  return FALSE;
 }

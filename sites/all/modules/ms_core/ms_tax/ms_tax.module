@@ -264,7 +264,7 @@ function ms_tax_remove_country($form, &$form_state) {
   $op = $form_state['values']['op'];
   foreach ($form_state['values'] as $key => $value) {
     if ($key != 'op' AND $value == $op) {
-      list($name, $country_iso) = explode("-", $key);
+      list(, $country_iso) = explode("-", $key);
       unset($specific_countries[$country_iso]);
       variable_del('ms_tax_remove_country-' . $country_iso);
       variable_del('ms_tax_name_' . $country_iso);
@@ -290,9 +290,9 @@ function ms_tax_ms_cart_added($order, $product) {
   // If there is a country set with a specific tax, add that tax.
   if (variable_get('ms_tax_use_country_specific_rates', FALSE)) {
     // Check if the cart already has a country_iso set in the data.
-    if (isset($cart->data['country_iso'])) {
-      $country_iso = $cart->data['country_iso'];
-      ms_tax_add_tax_adjustment($cart, $country_iso);
+    if (isset($order->data['country_iso'])) {
+      $country_iso = $order->data['country_iso'];
+      ms_tax_add_tax_adjustment($order, $country_iso);
     }
     // Check if the user is logged in and if their profile has the data info.
     elseif ($user->uid) {
@@ -341,8 +341,8 @@ function ms_tax_ms_cart_added($order, $product) {
   // If there is a region set with a specific tax, add that tax.
   if ($state_specific = trim(variable_get('ms_tax_state_specific_rates', ''))) {
     // Check if the cart already has a tax_state set in the data.
-    if (isset($cart->data['tax_state'])) {
-      $tax_state = $cart->data['tax_state'];
+    if (isset($order->data['tax_state'])) {
+      $tax_state = $order->data['tax_state'];
       ms_tax_add_state_tax_adjustment($order, $tax_state);
     }
     // Check if the user is logged in and if their profile has the data info.
@@ -587,7 +587,7 @@ function ms_tax_ms_core_checkout_form_alter(&$form, $form_state, $cart) {
 
     $vars = FALSE;
     // Load the account from the order.
-    if ($cart->uid && $account = user_load($cart->uid)) {
+    if ($cart->uid && ($account = user_load($cart->uid))) {
       $vars = (array) $account;
     }
     elseif (!empty($cart->data['register_form'])) {

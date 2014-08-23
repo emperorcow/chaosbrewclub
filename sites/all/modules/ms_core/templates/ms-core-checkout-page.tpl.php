@@ -7,13 +7,13 @@
  * Variables:
  * ----------
  *
- * $checkout_steps
+ * @var $checkout_steps
  *   The HTML for the checkout steps widget.
- * $order_details
+ * @var $order_details
  *   The table with the order details and quantity and option widgets.
- * $checkout_fields
+ * @var $checkout_fields
  *   Any fields that are on the checkout form, such as the order information.
- * $checkout_form
+ * @var $checkout_form
  *   The checkout form, which can include the payment gateways, user and
  *   shipping information, coupon fields, etc.
  */

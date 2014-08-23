@@ -104,7 +104,7 @@ class PayflowProRecurring {
 
     $history = (object)$history->RecurringProfileResult;
     $history = array($history);
-    foreach($history as $k => $payment) {
+    foreach ($history as $payment) {
       if(!isset($payment->RPPaymentResult)) {
         continue;
       }
@@ -140,7 +140,6 @@ class PayflowProRecurring {
    * of the xml
    */
   private function runInquiry($history = false) {
-    $profile_id = $this->getProfileID();
     $options = array();
 
     # Build XML
@@ -165,11 +164,7 @@ class PayflowProRecurring {
    * Cancels this subscription
    */
   public function cancel() {
-    $profile_id = $this->getProfileID();
-    $options = array();
-
     # Build XML
-    $transaction = '';
     // Get the cancel transaction xml
     $action = $this->getCancelXML();
     // Wrap the cancel transction in a profile
@@ -189,7 +184,6 @@ class PayflowProRecurring {
       $this->return_msg = $response->RecurringProfileResult->Message;
       return false;
     }
-    return $response;
   }
 
   public function getReturnCode() {
@@ -207,8 +201,6 @@ class PayflowProRecurring {
   public function save() {
     $this->isCreateNew();
     # Build XML
-    $transaction = '';
-
     // Fetch the RPData
     $rpdataxml = $this->getAddXML();
 
@@ -289,7 +281,6 @@ class PayflowProRecurring {
    * The getRPDataXML is a HELPER function for this one.
    */
   private function getAddXML() {
-    $xml = '';
     $xml = '<Add>' .
       $this->getTenderXML() .
       $this->getRPDataXML() .
@@ -322,8 +313,8 @@ class PayflowProRecurring {
     return $xml;
   }
   private function getTenderXML() {
-    $xml = '';
     $tender = $this->profile_tender;
+    $cvnum = '';
     if($tender['CVNum']) {
       $cvnum = '<CVNum>' . check_plain($tender['CVNum']) . '</CVNum>';
     }
@@ -349,11 +340,7 @@ class PayflowProRecurring {
    * @todo - Add support for modifying the frequency.
    */
   public function update() {
-    $profile_id = $this->getProfileID();
-    $options = array();
-
     # Build XML
-    $transaction = '';
     // Get the update transaction xml
     $action = $this->getUpdateXML();
     // Wrap the update transction in a profile
@@ -373,7 +360,6 @@ class PayflowProRecurring {
       $this->return_msg = $response->RecurringProfileResult->Message;
       return false;
     }
-    return $response;
   }
 
   public function setUpdate($item, $val) {
@@ -396,8 +382,6 @@ class PayflowProRecurring {
   }
 
   public function parseResults(SimpleXMLElement $result) {
-    $status_code = (int)$result->Result;
-    $status_msg = (string)$result->Message;
     $this->setStatus((string)$result->Status);
   }
 
@@ -553,17 +537,14 @@ class PayflowProRecurring {
     switch($format) {
       case 'raw':
         return $this->profile_next_payment;
-      break;
+
       case 'unix':
         return $this->parsePayFlowDate($this->profile_next_payment);
-      break;
+
       default:
         $date = $this->parsePayFlowDate($this->profile_next_payment);
         return format_date($date, 'custom', $format);
-        break;
     }
-
-    return $this->profile_next_payment;
   }
   public function getAggregateAmt() {
     return $this->profile_aggregate_amt;

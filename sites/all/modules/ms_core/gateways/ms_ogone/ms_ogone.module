@@ -204,6 +204,7 @@ function ms_ogone_false() {
   ms_core_log_error('ms_ogone', 'Ogone returned an error for this payment.');
   drupal_goto('ms/checkout');
 }
+
 /**
  * Cancel return page
  */
@@ -225,101 +226,104 @@ function ms_ogone_return_ok($auto = FALSE) {
   $valid_stat = array(5, 9);
 
   $orderid = $params['orderID'];
+  $order = ms_core_order_load($orderid);
+
+  if (!$order) {
+    ms_core_log_error('ms_ogone', 'Error loading the order for a Ogone Return: !data',
+      array('!data' => ms_core_print_r($params)));
+  }
+
   $currency = $params['currency'];
   $amount = $params['amount'];
-  $pm = $params['PM'];
   $status = $params['STATUS'];
+
+  // Check that the currency and amount match the order.
+  // @todo - Also check the recurring schedule if it is a recurring order.
+  if (!ms_core_valid_payment($order, 'cart', $amount) || $currency != $order->currency) {
+    drupal_set_message(t('There was an error with the payment. Please contact the site administrator.'), 'error');
+    ms_core_log_error('ms_ogone', 'Possible spoofing attempt. Price mismatch. Ignoring IPN. Order: !order IPN: !ipn',
+      array('!order' => ms_core_print_r($order), '!ipn' => ms_core_print_r($params)));
+    return FALSE;
+  }
 
   $sha_sign = ms_ogone_make_sha1($params, $secret, 'in');
 
   if ($sha_sign == $sha1_return_key) {
     if (in_array($status, $valid_stat)) {
-      if ($order = ms_core_order_load($orderid)) {
-        $extra['txn_id'] = $params['ACCEPTANCE'];
-        $extra['approved'] = TRUE;
+      $extra['txn_id'] = $params['ACCEPTANCE'];
+      $extra['approved'] = TRUE;
 
-        switch ($order->order_type) {
-          case 'recurring':
+      switch ($order->order_type) {
+        case 'recurring':
 
-            if ($extra['approved'] == TRUE) {
-              // Insert the Payment to the database
-              $payment = ms_core_new_payment($order->oid, 'ms_ogone', 'rec_signup');
-              $payment->transaction = $extra['txn_id'];
-              $payment->amount = $amount;
-              $payment->currency = $currency;
-              $payment->data = array();
-              $payment->recurring_schedule = $order->recurring_schedule;
+          if ($extra['approved'] == TRUE) {
+            // Insert the Payment to the database
+            $payment = ms_core_new_payment($order->oid, 'ms_ogone', 'rec_signup');
+            $payment->transaction = $extra['txn_id'];
+            $payment->amount = $amount;
+            $payment->currency = $currency;
+            $payment->data = array();
 
-              // Update the address
-              $payment->billing_address = array(
-                'street' => '',
-                'city' => '',
-                'state' => '',
-                'zip' => '',
-                'country' => '',
-                'phone' => '',
-              );
-              // Update the contact details
-              $name = explode(' ', $params['CN']);
-              $payment->first_name = $name[0];
-              $payment->last_name = $name[1];
+            // Update the address
+            $payment->billing_address = array(
+              'street' => '',
+              'city' => '',
+              'state' => '',
+              'zip' => '',
+              'country' => '',
+              'phone' => '',
+            );
+            // Update the contact details
+            $name = explode(' ', $params['CN']);
+            $payment->first_name = $name[0];
+            $payment->last_name = $name[1];
 
-              // Add the Payment to the Order
-              ms_core_enter_payment($payment, FALSE);
+            // Add the Payment to the Order
+            ms_core_enter_payment($payment);
 
-              drupal_goto('ms/thankyou');
-            }
-            else {
-              // There was an error, log this
-              ms_core_log_error('ms_ogone', 'There was an error with the payment: !data',
-               array('!data' => ms_core_print_r($params)));
-            }
-            break;
+            drupal_goto('ms/thankyou');
+          } else {
+            // There was an error, log this
+            ms_core_log_error('ms_ogone', 'There was an error with the payment: !data',
+              array('!data' => ms_core_print_r($params)));
+          }
+          break;
 
-          case 'cart':
-            if ($extra['approved'] == TRUE) {
-              // Insert the Payment to the database
-              $payment = ms_core_new_payment($order->oid, 'ms_ogone', 'cart');
-              $payment->transaction = $extra['txn_id'];
-              $payment->amount = $amount;
-              $payment->currency = $currency;
-              $payment->data = array();
-              $payment->recurring_schedule = array();
+        case 'cart':
+          if ($extra['approved'] == TRUE) {
+            // Insert the Payment to the database
+            $payment = ms_core_new_payment($order->oid, 'ms_ogone', 'cart');
+            $payment->transaction = $extra['txn_id'];
+            $payment->amount = $amount;
+            $payment->currency = $currency;
+            $payment->data = array();
 
-              // Update the address
-              $payment->billing_address = array(
-                'street' => '',
-                'city' => '',
-                'state' => '',
-                'zip' => '',
-                'country' => '',
-                'phone' => '',
-              );
+            // Update the address
+            $payment->billing_address = array(
+              'street' => '',
+              'city' => '',
+              'state' => '',
+              'zip' => '',
+              'country' => '',
+              'phone' => '',
+            );
 
-              // Add the Payment to the Order
-              ms_core_enter_payment($payment);
+            // Add the Payment to the Order
+            ms_core_enter_payment($payment);
 
-              drupal_goto('ms/thankyou');
-            }
-            else {
-              // There was an error, log this
-              ms_core_log_error('ms_ogone', 'There was an error with the payment: !data',
-               array('!data' => ms_core_print_r($params)));
-            }
-            break;
-        }
+            drupal_goto('ms/thankyou');
+          } else {
+            // There was an error, log this
+            ms_core_log_error('ms_ogone', 'There was an error with the payment: !data',
+              array('!data' => ms_core_print_r($params)));
+          }
+          break;
       }
-      else {
-        ms_core_log_error('ms_ogone', 'Error loading the order for a Ogone Return: !data',
-          array('!data' => ms_core_print_r($params)));
-      }
-    }
-    else {
+    } else {
       ms_core_log_error('ms_ogone', 'Invalid status: !data',
         array('!data' => ms_core_print_r($params)));
     }
-  }
-  else {
+  } else {
     ms_core_log_error('ms_ogone', 'The SHA key did not match: Generated SHA: !sha DATA: !data',
       array('!sha' => $sha_sign, '!data' => ms_core_print_r($params)));
   }
@@ -341,7 +345,7 @@ function ms_ogone_return_ok_callback() {
  */
 function ms_ogone_template() {
   drupal_set_title(variable_get('ms_ogone_layout_title', 'Secure Checkout'));
-  $template .= '<div align="right">IMAGE</div>';
+  $template = '<div align="right">IMAGE</div>';
   $template .= '<div align="center"><div align="left" style="width: 550px; padding: 10px; border:2px solid #666; background-color: #fff;">';
   $template .= '<h1>' . filter_xss(variable_get('ms_ogone_layout_title', TRUE)) . '</h1>';
   $template .= '$$$PAYMENT ZONE$$$';
@@ -358,9 +362,6 @@ function ms_ogone_checkout() {
     // Error
     return t('The order could not be loaded from the session');
   }
-
-  // Get the Form
-  $ogone_url = filter_xss(variable_get('ms_ogone_url', TRUE));
 
   // Get the Form
   $ogone_url = filter_xss(variable_get('ms_ogone_url', TRUE));
@@ -450,8 +451,7 @@ function ms_ogone_checkout() {
       $params['SUB_AMOUNT'] = round($order->recurring_schedule['main_amount'] * 100);
       // Set the start date to now + trial period
       $params['SUB_STARTDATE'] = date('Y-m-d', strtotime("+" . $order->recurring_schedule['trial_length'] . ' ' . $trial_unit));
-    }
-    else {
+    } else {
       // Set the initial payment to the trial amount
       $params['SUB_AMOUNT'] = round($order->amount * 100);
       // Set the start date to now + trial period
@@ -508,7 +508,6 @@ function ms_ogone_checkout() {
     <div class="ogone_redirect_message_top">
       ' . $redirect_message1 . '
       </br>
-      ' . $debg . '
     </div>
     <div class="ogone_redirect_container">
       <div class="ogone_redirect_form">';
@@ -796,8 +795,7 @@ function ms_ogone_make_sha1($params, $secret, $mode = 'out') {
 
   if ($mode == 'in') {
     $map = $in_map;
-  }
-  else {
+  } else {
     $map = $out_map;
   }
 
