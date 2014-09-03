@@ -115,6 +115,7 @@ class GroupBuyUIController extends EntityDefaultUIController {
 					l(t('Edit'), 'admin/content/groupbuy/manage/' . $gid) . ' - ' . 
 					l(t('Delete'), 'admin/content/groupbuy/manage' . $gid . '/delete', array('query' => array('destination' => 'admin/content/groupbuy'))) . ' - ' .
 					l(t('Import Products'), 'admin/content/groupbuy/manage/' . $gid . '/import_products') . ' - ' .
+					l(t('Export Products'), 'admin/content/groupbuy/manage/' . $gid . '/export_products') . ' - ' .
 					l(t('Clear Products'), 'admin/content/groupbuy/manage/' . $gid . '/clear_products') . ' - '.
 					l(t('View Orders'), 'admin/content/groupbuy/manage/' . $gid . '/orders'). ' - '.
 					l(t('View Pallets'), 'admin/content/groupbuy/manage/' . $gid . '/pallets'),
@@ -213,16 +214,21 @@ function chaos_groupbuy_menu() {
 			'title' => 'Group Buy Product Import',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_import_products_form', 4),
-			//'access arguments' => array('admin group buys'),
-			'access arguments' => array('access administration pages'),
+			'access arguments' => array('admin group buys'),
+			'file' => 'chaos_groupbuy.admin.inc',
+		),
+		'admin/content/groupbuy/manage/%/export_products' => array(
+			'title' => 'Group Buy Product Export',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('chaos_groupbuy_export_products_form', 4),
+			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
 		'admin/content/groupbuy/manage/%/clear_products' => array(
 			'title' => 'Group Buy Product Clear',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_delete_products_confirm', 4),
-			'access arguments' => array('access administration pages'),
-			//'access arguments' => array('admin group buys'),
+			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
 		'admin/content/groupbuy/manage/%/orders' => array(

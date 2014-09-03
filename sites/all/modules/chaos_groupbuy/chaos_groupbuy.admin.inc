@@ -314,6 +314,50 @@ function chaos_groupbuy_delete_products_confirm_submit($form, &$form_state) {
 	$form_state['redirect'] = 'admin/content/groupbuy/';
 }
 
+function chaos_groupbuy_export_products_form($form, $form_state, $gid) {
+	$form = array();
+	$items = "";
+
+	$form['gid'] = array(
+		'#type' => 'select',
+		'#title' => 'Group Buy',
+		'#description' => 'The group buy this export is for.',
+		'#options' => chaos_groupbuy_name_options(),
+		'#disabled' => TRUE,
+		'#default_value' => $gid,
+	);
+
+	$products = ms_products_get_plans_list('chaos_groupbuy');
+
+	foreach ($products as $pid => $pname) {
+		$plan = ms_products_plan_load($pid);
+
+		if($plan->gid != $gid) {
+			continue;
+		}
+
+		$items .= sprintf("\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"\n", 
+					$plan->category,
+					$plan->subcategory,
+					$plan->title,
+					$plan->description,
+					$plan->itemid,
+					$plan->size,
+					$plan->recurring_schedule['main_amount'],
+					$plan->is_large ? "TRUE" : "FALSE"
+			);
+	}
+
+	$form['items'] = array(
+		'#type' => 'textarea',
+		'#title' => 'Products Output',
+		'#description' => 'This is a CSV file that can be edited in Excel and reimported if new data is necessary.',
+		'#default_value' => $items,
+	);
+
+	return $form;
+}
+
 function chaos_groupbuy_import_products_form($form, $form_state, $gid) {
 	$form = array();
 
