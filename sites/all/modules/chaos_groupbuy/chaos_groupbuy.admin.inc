@@ -165,7 +165,7 @@ function chaos_groupbuy_form_submit($form, &$form_state) {
 	$groupbuy->save();
 
 	drupal_set_message(t('Group buy "@name" has been saved.', array('@name' => $groupbuy->name)));
-	$form_state['redirect'] = 'admin/content/groupbuy/manage/' . $groupbuy->gid;
+	$form_state['redirect'] = 'groupbuy/admin/manage/' . $groupbuy->gid;
 }
 
 function chaos_groupbuy_manage_pallets_callback($form, &$form_state, $gid) {
@@ -209,7 +209,7 @@ function chaos_groupbuy_manage_pallets_callback($form, &$form_state, $gid) {
 			'size' => $product->data['size'],
 			'quantity' => $product->qty,
 			'pallet' => $p->pallet + 1,
-			'actions' => l("Edit", 'admin/content/groupbuy/purchase/manage/'.$id) . ' - ' . l("Delete", 'admin/content/groupbuy/purchase/manage/'.$id.'/delete'),
+			'actions' => l("Edit", 'groupbuy/admin/purchase/manage/'.$id) . ' - ' . l("Delete", 'groupbuy/admin/purchase/manage/'.$id.'/delete'),
 			'#disabled' => TRUE,
 		);
 	}
@@ -311,7 +311,7 @@ function chaos_groupbuy_delete_products_confirm_submit($form, &$form_state) {
 			}
 		}
 	}
-	$form_state['redirect'] = 'admin/content/groupbuy/';
+	$form_state['redirect'] = 'groupbuy/admin/';
 }
 
 function chaos_groupbuy_export_products_form($form, $form_state, $gid) {

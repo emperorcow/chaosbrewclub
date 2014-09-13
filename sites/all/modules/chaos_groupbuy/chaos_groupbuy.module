@@ -21,7 +21,7 @@ function chaos_groupbuy_entity_info() {
 				'id' => 'gid',
 			),
 			'admin ui' => array(
-				'path' => 'admin/content/groupbuy',
+				'path' => 'groupbuy/admin',
 				'file' => 'chaos_groupbuy.admin.inc',
 				'controller class' => 'GroupBuyUIController',
 			),
@@ -39,7 +39,7 @@ function chaos_groupbuy_entity_info() {
 				'id' => 'groupbuy_purchase_id',
 			),
 			'admin ui' => array(
-				'path' => 'admin/content/groupbuy/purchase',
+				'path' => 'groupbuy/admin/purchase',
 				'file' => 'chaos_groupbuy.admin.inc',
 				'controller class' => 'GroupBuyPurchaseUIController',
 			),
@@ -112,13 +112,13 @@ class GroupBuyUIController extends EntityDefaultUIController {
 				'name' => l($g->name, 'groupbuy/'.$gid),
 				'operations' => 
 					l(t('View'), 'groupbuy/'.$gid) . ' - ' . 
-					l(t('Edit'), 'admin/content/groupbuy/manage/' . $gid) . ' - ' . 
-					l(t('Delete'), 'admin/content/groupbuy/manage' . $gid . '/delete', array('query' => array('destination' => 'admin/content/groupbuy'))) . ' - ' .
-					l(t('Import Products'), 'admin/content/groupbuy/manage/' . $gid . '/import_products') . ' - ' .
-					l(t('Export Products'), 'admin/content/groupbuy/manage/' . $gid . '/export_products') . ' - ' .
-					l(t('Clear Products'), 'admin/content/groupbuy/manage/' . $gid . '/clear_products') . ' - '.
-					l(t('View Orders'), 'admin/content/groupbuy/manage/' . $gid . '/orders'). ' - '.
-					l(t('View Pallets'), 'admin/content/groupbuy/manage/' . $gid . '/pallets'),
+					l(t('Edit'), 'groupbuy/admin/manage/' . $gid) . ' - ' . 
+					l(t('Delete'), 'groupbuy/admin/manage/' . $gid . '/delete', array('query' => array('destination' => 'groupbuy/admin'))) . ' - ' .
+					l(t('Import Products'), 'groupbuy/admin/manage/' . $gid . '/import_products') . ' - ' .
+					l(t('Export Products'), 'groupbuy/admin/manage/' . $gid . '/export_products') . ' - ' .
+					l(t('Clear Products'), 'groupbuy/admin/manage/' . $gid . '/clear_products') . ' - '.
+					l(t('View Orders'), 'groupbuy/admin/manage/' . $gid . '/orders'). ' - '.
+					l(t('View Pallets'), 'groupbuy/admin/manage/' . $gid . '/pallets'),
 				'#disabled' => TRUE,
 			);
 		}
@@ -210,42 +210,42 @@ function chaos_groupbuy_menu() {
 			'page arguments' => array(1, 3),
 			'access arguments' => array('access group buys'),
 		),
-		'admin/content/groupbuy/manage/%/import_products' => array(
+		'groupbuy/admin/manage/%/import_products' => array(
 			'title' => 'Group Buy Product Import',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_import_products_form', 4),
 			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
-		'admin/content/groupbuy/manage/%/export_products' => array(
+		'groupbuy/admin/manage/%/export_products' => array(
 			'title' => 'Group Buy Product Export',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_export_products_form', 4),
 			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
-		'admin/content/groupbuy/manage/%/clear_products' => array(
+		'groupbuy/admin/manage/%/clear_products' => array(
 			'title' => 'Group Buy Product Clear',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_delete_products_confirm', 4),
 			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
-		'admin/content/groupbuy/manage/%/orders' => array(
+		'groupbuy/admin/manage/%/orders' => array(
 			'title' => 'Group Buy Order Listing',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_manage_orders_callback', 4),
 			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
-		'admin/content/groupbuy/manage/%/pallets' => array(
+		'groupbuy/admin/manage/%/pallets' => array(
 			'title' => 'Group Buy Pallet Report',
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_groupbuy_manage_pallets_callback', 4),
 			'access arguments' => array('admin group buys'),
 			'file' => 'chaos_groupbuy.admin.inc',
 		),
-		'admin/content/groupbuy/product/%/edit' => array(
+		'groupbuy/admin/product/%/edit' => array(
 			'title' => 'Edit Group Buy Purchase',
 			'page callback' => 'entity_ui_get_form',
 			'page arguments' => array('chaos_groupbuy_purchase', 4, 'edit'),
