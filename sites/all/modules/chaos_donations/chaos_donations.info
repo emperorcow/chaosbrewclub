@@ -1,0 +1,5 @@
+name = CHAOS Donations
+description = Provide a page for users to donate to the club.
+core = 7.x
+package = CHAOS Brew Club
+dependencies[] = ms_core
