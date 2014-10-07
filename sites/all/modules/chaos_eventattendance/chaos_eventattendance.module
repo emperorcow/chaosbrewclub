@@ -1,0 +1,338 @@
+<?php
+
+function chaos_eventattendance_admin() {
+	$form['chaos_eventattendance_key'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Authentication Key'),
+		'#size' => 40,
+		'#maxlength' => 80,
+		'#default_value' => variable_get('chaos_eventattendance_key', ''),
+		'#description' => t('The key to use with clients to allow authentication'),
+		'#required' => TRUE,
+	);
+	return system_settings_form($form);
+}
+
+function chaos_eventattendance_entity_info() {
+	return array(
+		'chaos_eventattendance' => array(
+			'label' => t('Event'),
+			'label callback' => 'entity_class_label',
+			'entity class' => 'EventAttendance',
+			'controller class' => 'EventAttendanceController',
+			'base table' => 'chaos_eventattendance',
+			'uri callback' => 'entity_class_uri',
+			'access callback' => 'chaos_eventattendance_entity_access',
+			'module' => 'chaos_eventattendance',
+			'entity keys' => array(
+				'id' => 'eid',
+			),
+			'admin ui' => array(
+				'path' => 'admin/structure/eventattendance',
+				'file' => 'chaos_eventattendance.admin.inc',
+				//'controller class' => 'EventAttendanceUIController',
+			),
+		),
+		'chaos_eventattendance_checkin' => array(
+			'label' => t('Event Checkin'),
+			'label callback' => 'entity_class_label',
+			'entity class' => 'EventAttendanceCheckin',
+			'controller class' => 'EventAttendanceCheckinController',
+			'base table' => 'chaos_eventattendance_checkin',
+			'uri callback' => 'entity_class_uri',
+			'access callback' => 'chaos_eventattendance_entity_access',
+			'module' => 'chaos_eventattendance',
+			'entity keys' => array(
+				'id' => 'checkin_id',
+			),
+		),
+	);
+}
+
+function chaos_eventattendance_permission() {
+	return array(
+		'access event checkins' => array(
+			'title' => t('Access Event Checkins'),
+			'description' => t('Check people in and view checkins'),
+		),
+		'admin event checkins' => array(
+			'title' => t('Administer event checkins'),
+			'description' => t('Administer event checkins, view reports, etc.'),
+		),
+	);
+}
+
+function chaos_eventattendance_entity_access($op, $event, $account = NULL, $type = NULL) {
+	global $user;
+
+	if(!isset($account)) {
+		$account = $user;
+	}
+
+	switch($op) {
+		case 'view':   return user_access('access event checkins', $account);
+		default    :   return user_access('admin event checkins', $account);
+	}
+}
+
+class EventAttendance extends Entity {
+	protected function defaultLabel() {
+		return empty($this->name) ? 'Unknown Event' : $this->name;
+	}
+}
+
+class EventAttendanceController extends EntityAPIController {
+	public function save($entity, DatabaseTransaction $transaction = NULL) {
+		return parent::save($entity, $transaction);
+	}
+}
+
+class EventAttendanceCheckin extends Entity {
+	protected function defaultLabel() {
+		return empty($this->checkin_id) ? '' : $this->checkin_id;
+	}
+}
+class EventAttendanceCheckinController extends EntityAPIController {
+	public function save($entity, DatabaseTransaction $transaction = NULL) {
+		if (isset($entity->is_new)) {
+			$entity->created = REQUEST_TIME;
+		}
+
+		return parent::save($entity, $transaction);
+	}
+}
+
+function chaos_eventattendance_list() {
+	return entity_load('chaos_eventattendance');
+}
+
+function chaos_eventattendance_load($eid = NULL, $reset = FALSE) {
+	$e = chaos_eventattendance_load_multiple(array($eid), array(), $reset);
+	return isset($e[$eid]) ? $e[$eid] : FALSE;
+}
+
+function chaos_eventattendance_load_multiple($eids = array(), $conditions = array(), $reset = FALSE) {
+	return entity_load('chaos_eventattendance', $eids, $conditions, $reset);
+}
+
+function chaos_eventattendance_checkin_load($eid = NULL, $reset = FALSE) {
+	$e = chaos_eventattendance_purchase_load_multiple(array($eid), array(), $reset);
+	return isset($e[$eid]) ? $e[$eid] : FALSE;
+}
+
+function chaos_eventattendance_checkin_load_multiple($eids = array(), $conditions = array(), $reset = FALSE) {
+	return entity_load('chaos_eventattendance_checkin', $eids, $conditions, $reset);
+}
+
+function chaos_eventattendance_menu() {
+	return array(
+		'admin/config/services/eventattendance' => array(
+			'title' => 'Event Attendance',
+			'description' => t('Settings for event checkins'),
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('chaos_eventattendance_admin'),
+			'access arguments' => array('admin event checkins'),
+			'type' => MENU_NORMAL_ITEM,
+		),
+		'eventattendance/%/start' => array(
+			'title' => 'Event Startup',
+			'page callback' => 'chaos_eventattendance_show_current_event',
+			'access arguments' => array('access event checkins'),
+			'page arguments' => array(1),
+			'type' => MENU_CALLBACK,
+		),
+		'eventattendance/%/search/%' => array(
+			'title' => 'User Search',
+			'page callback' => 'chaos_eventattendance_search_users',
+			'access arguments' => array('access event checkins'),
+			'page arguments' => array(1,3),
+			'type' => MENU_CALLBACK,
+		),
+		'eventattendance/%/user/%' => array(
+			'title' => 'User Information',
+			'page callback' => 'chaos_eventattendance_get_user',
+			'access arguments' => array('access event checkins'),
+			'page arguments' => array(1, 3),
+			'type' => MENU_CALLBACK,
+		),
+		'eventattendance/%/checkin/%/%' => array(
+			'title' => 'User Checkin',
+			'page callback' => 'chaos_eventattendance_checkin_user',
+			'page arguments' => array(1, 3, 4),
+			'access arguments' => array('access event checkins'),
+			'type' => MENU_CALLBACK,
+		),
+	);
+}
+
+function _chaos_eventattendance_authenticate_key($auth) {
+	$key = variable_get('chaos_eventattendance_key', '');
+
+	if($key == '' || $key != $auth) {
+		drupal_goto('');
+		return false;
+	}
+
+	return true;
+}
+
+function chaos_eventattendance_show_current_event($key) {
+	if(!_chaos_eventattendance_authenticate_key($key)) {
+		return;
+	}
+
+	$q = new EntityFieldQuery();
+	$q->entityCondition('entity_type', 'chaos_eventattendance')
+	  ->propertyCondition('date', date('Y-m-d'));
+	$r = $q->execute();
+
+	$output = array();
+
+	if($r['chaos_eventattendance']) {
+		$events = chaos_eventattendance_load_multiple(array_keys($r['chaos_eventattendance']));		
+		reset($events);
+		$eid = key($events);
+		$output['eid'] = $eid;
+		$output['name'] = $events[$eid]->name;
+		$output['date'] = $events[$eid]->date;
+	}
+	drupal_json_output($output);
+	drupal_exit();
+}
+
+function _chaos_eventattendance_get_user_info($user) {
+	return array(
+			'uid' => $user->uid,
+			'name' => $user->name,
+			'email' => $user->mail,
+			'roles' => $user->roles,
+		);	
+}
+
+function _chaos_eventattendance_get_user_array($users) {
+	$output = array();
+	foreach($users as $uid => $user) {
+		$output[$uid] = _chaos_eventattendance_get_user_info($user);
+	}
+	return $output;
+}
+
+function _chaos_eventattendance_merge_user_array($first, $second) {
+	foreach($second as $uid => $info) {
+		if(!array_key_exists($uid, $first)) {
+			$first[$uid] = $info;
+		}
+	}
+	return $first;
+}
+
+function chaos_eventattendance_get_user($key, $uid) {
+	if(!_chaos_eventattendance_authenticate_key($key)) {
+		return;
+	}
+
+	$user = user_load($uid);
+
+	$output['uid'] = $uid;
+	$output['username'] = $user->name;
+	$output['email'] = $user->mail;
+	$output['roles'] = $user->roles;
+	$output['first'] = $user->field_first_name['und'][0]['value'];
+	$output['last'] = $user->field_last_name['und'][0]['value'];
+	$output['birthday'] = $user->field_birthdate['und'][0]['value'];
+
+	$filepath = "";
+	if(!empty($user->picture)) {
+		if(!empty($user->picture->uri)) {
+			$filepath = $user->picture->uri;
+		}
+	}
+
+	$output['picture'] = file_create_url($filepath);
+	$output['memberships'] = array();
+
+	foreach($user->ms_memberships as $membership) {
+		$plan = ms_products_plan_load($membership->sku);
+
+		$info = array();
+		$info['name'] = $plan->name;
+		$info['sku'] = $plan->sku;
+		$info['start'] = $membership->start_date;
+		$info['expiration'] = $membership->expiration;
+
+		array_push($output['memberships'], $info);
+	}
+
+
+	drupal_json_output($output);
+	drupal_exit();
+}
+
+function _chaos_eventattendance_sort_array_by_name($a, $b) {
+	return strcasecmp($a['name'], $b['name']);
+}
+
+function chaos_eventattendance_search_users($key, $id) {
+	if(!_chaos_eventattendance_authenticate_key($key)) {
+		return;
+	}
+
+	$output = array();	
+
+	$qName = new EntityFieldQuery();
+	$qName->entityCondition('entity_type', 'user')
+	  ->propertyCondition('name', $id, 'CONTAINS');
+	$rName = $qName->execute();
+	if(isset($rName['user'])) {
+		$users = user_load_multiple(array_keys($rName['user']));
+		$output = _chaos_eventattendance_get_user_array($users);
+	}
+
+	$qEmail = new EntityFieldQuery();
+	$qEmail->entityCondition('entity_type', 'user')
+	  ->propertyCondition('mail', $id, 'CONTAINS');
+	$rEmail = $qEmail->execute();
+	if(isset($rEmail['user'])) {
+		$users = user_load_multiple(array_keys($rEmail['user']));
+		$byEmail = _chaos_eventattendance_get_user_array($users);
+		$output = _chaos_eventattendance_merge_user_array($output, $byEmail);
+	}
+
+	usort($output, '_chaos_eventattendance_sort_array_by_name');
+
+	drupal_json_output($output);
+	drupal_exit();
+}
+
+function chaos_eventattendance_checkin_user($key, $eid, $uid) {
+	if(!_chaos_eventattendance_authenticate_key($key)) {
+		return;
+	}
+
+	$q = new EntityFieldQuery();
+	$q->entityCondition('entity_type', 'chaos_eventattendance_checkin')
+	  ->propertyCondition('eid', $eid)
+	  ->propertyCondition('uid', $uid);
+	$r = $q->execute();
+	if($r['chaos_eventattendance_checkin']) {
+		//User has already checked in
+		drupal_json_output(array('2' => t('User already checked in.')));
+	} else {
+		$event = chaos_eventattendance_load($eid);	
+		$user = user_load($uid);
+
+		$roles = array_flip(str_getcsv($event->roles));
+		$has_roles = array_intersect_key($user->roles, $roles);
+	
+		if(!empty($has_roles)) {
+			$checkin = entity_create('chaos_eventattendance_checkin', array());
+			$checkin->eid = $eid;
+			$checkin->uid = $uid;
+			$checkin->save();
+			drupal_json_output(array('0' => t('Checkin successful!')));
+		} else {
+			drupal_json_output(array('1' => t('Check membership, user not allowed in.')));
+		}
+	}
+	drupal_exit();	
+}

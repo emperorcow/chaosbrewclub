@@ -1,0 +1,65 @@
+<?php
+
+function chaos_eventattendance_schema() {
+	$schema = array();
+
+	$schema['chaos_eventattendance'] = array(
+		'description' => 'Table for CHAOS Event Attendance entity',
+		'fields' => array(
+			'eid' => array(
+				'description' => 'Primary key and unique ID',
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'name' => array(
+				'description' => 'Description of the event',
+				'type' => 'text',
+				'not null' => TRUE,
+			),
+			'roles' => array(
+				'description' => 'Roles allowed to attend the event',
+				'type' => 'text',
+				'not null' => TRUE,
+			),
+			'date' => array(
+				'description' => 'The date of the event',
+				'type' => 'text',
+				'not null' => TRUE,
+			),
+		),
+		'primary key' => array('eid'),
+	);
+	$schema['chaos_eventattendance_checkin'] = array(
+		'description' => 'Table for CHAOS Event Attendance Checkin entity',
+		'fields' => array(
+			'checkin_id' => array(
+				'description' => 'Primary key and unique ID for checkins',
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'eid' => array(
+				'description' => 'ID of the event the user is checking in for',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'uid' => array(
+				'description' => 'The ID of the checking in user',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'created' => array(
+				'description' => 'Checkin timestamp',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => FALSE,
+			),
+		),
+		'primary key' => array('checkin_id'),
+	);
+
+	return $schema;
+}
