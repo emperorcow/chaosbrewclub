@@ -2,3 +2,4 @@ name = CHAOS Event Attendance Tracker
 description = Provides JSON access to users and tracks who was there.
 core = 7.x
 package = CHAOS Brew Club
+configure = admin/config/services/eventattendance
