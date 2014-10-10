@@ -206,6 +206,8 @@ function _chaos_eventattendance_get_user_info($user) {
 			'uid' => $user->uid,
 			'name' => $user->name,
 			'email' => $user->mail,
+			'first' => $user->field_first_name['und'][0]['safe_value'],
+			'last' => $user->field_last_name['und'][0]['safe_value'],
 			//'roles' => $user->roles,
 		);	
 }
@@ -278,32 +280,34 @@ function chaos_eventattendance_search_users($key, $id) {
 		return;
 	}
 
+	$id = db_like($id);
 	$output = array();	
 
-	$qName = new EntityFieldQuery();
-	$qName->entityCondition('entity_type', 'user')
-	  ->propertyCondition('name', $id, 'CONTAINS');
-	$rName = $qName->execute();
-	if(isset($rName['user'])) {
-		$users = user_load_multiple(array_keys($rName['user']));
-		$output = _chaos_eventattendance_get_user_array($users);
-	}
+	$query = db_select('users', 'u')->extend('PagerDefault');
+	$query->distinct();
 
-	$qEmail = new EntityFieldQuery();
-	$qEmail->entityCondition('entity_type', 'user')
-	  ->propertyCondition('mail', $id, 'CONTAINS');
-	$rEmail = $qEmail->execute();
-	if(isset($rEmail['user'])) {
-		$users = user_load_multiple(array_keys($rEmail['user']));
-		$byEmail = _chaos_eventattendance_get_user_array($users);
-		$output = _chaos_eventattendance_merge_user_array($output, $byEmail);
-	}
+	$query->fields('u', array('uid'));
+	$query->join('field_data_field_first_name', 'fn', 'fn.entity_id = u.uid');
+	$query->join('field_data_field_last_name', 'ln', 'ln.entity_id = u.uid');
+ 
+	$query->fields('u', array('mail'));
+	$query->condition(
+		db_or()
+			->condition('u.name', "%{$id}%", 'LIKE')
+			->condition('u.mail', "%{$id}%", 'LIKE')
+			->condition('field_first_name_value', "%{$id}%", 'LIKE')
+			->condition('field_last_name_value', "%{$id}%", 'LIKE')
+  	);
+	$uids = $query->limit(10)->execute()->fetchCol();
+	$users = user_load_multiple($uids);
+	$output = _chaos_eventattendance_get_user_array($users);
 
 	usort($output, '_chaos_eventattendance_sort_array_by_name');
 
 	drupal_json_output($output);
 	drupal_exit();
 }
+
 
 function chaos_eventattendance_checkin_user($key, $eid, $uid) {
 	if(!_chaos_eventattendance_authenticate_key($key)) {
@@ -315,9 +319,16 @@ function chaos_eventattendance_checkin_user($key, $eid, $uid) {
 	  ->propertyCondition('eid', $eid)
 	  ->propertyCondition('uid', $uid);
 	$r = $q->execute();
+
+	$return_code = 1;
+	$return_type = 'warn';
+	$return_msg = t("Check membership, user not allowed in.");
+
 	if($r['chaos_eventattendance_checkin']) {
 		//User has already checked in
-		drupal_json_output(array('2' => t('User already checked in.')));
+		$return_code = 2;
+		$return_msg = t("User already checked in.");
+		$return_type = 'warn';
 	} else {
 		$event = chaos_eventattendance_load($eid);	
 		$user = user_load($uid);
@@ -330,10 +341,16 @@ function chaos_eventattendance_checkin_user($key, $eid, $uid) {
 			$checkin->eid = $eid;
 			$checkin->uid = $uid;
 			$checkin->save();
-			drupal_json_output(array('0' => t('Checkin successful!')));
-		} else {
-			drupal_json_output(array('1' => t('Check membership, user not allowed in.')));
+
+			$return_code = 0;
+			$return_msg = t('Checkin successful!');
+			$return_type = 'success';
 		}
 	}
+	drupal_json_output(array(
+		'code' => $return_code,
+		'type' => $return_type,
+		'msg' => $return_msg,
+	));
 	drupal_exit();	
 }
