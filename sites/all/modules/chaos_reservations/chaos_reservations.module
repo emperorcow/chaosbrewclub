@@ -388,7 +388,11 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 					array(":role" => $roleid)
 				);
 
-		
+			$tmpstart = $start;
+			$tmpend = $end;	
+
+			$tmpstart->setTimezone(new DateTimeZone(date_default_timezone()));
+			$tmpend->setTimezone(new DateTimeZone(date_default_timezone()));
 
 			while($u = $res->fetchAssoc()) {
 				$params = array(
@@ -396,8 +400,8 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 					'username' => $user->name,
 					'userlevel' => _chaos_reservations_get_user_level($user),
 					'usermail' => $user->mail,
-					'starttime' => $start->format('g:ia \o\n l jS F Y'),
-					'endtime' => $end->format('g:ia \o\n l jS F Y'),
+					'starttime' => $tmpstart->format('g:ia \o\n l jS F Y'),
+					'endtime' => $tmpend->format('g:ia \o\n l jS F Y'),
 					'bay' => $form_state['values']['bay']['name'],
 				);
 
