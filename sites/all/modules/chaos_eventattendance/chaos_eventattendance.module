@@ -158,7 +158,7 @@ function chaos_eventattendance_menu() {
 		'api/eventattendance/%/checkin/%/%' => array(
 			'title' => 'User Checkin',
 			'page callback' => 'chaos_eventattendance_checkin_user',
-			'page arguments' => array(2, 4, 5),
+			'page arguments' => array(2, 4, 5, 6),
 			'access arguments' => array('access event checkins'),
 			'type' => MENU_CALLBACK,
 		),
@@ -201,7 +201,7 @@ function chaos_eventattendance_show_current_event($key) {
 	drupal_exit();
 }
 
-function _chaos_eventattendance_get_user_info($user) {
+function _chaos_eventattendance_get_user_summary($user) {
 	return array(
 			'uid' => $user->uid,
 			'name' => $user->name,
@@ -215,7 +215,7 @@ function _chaos_eventattendance_get_user_info($user) {
 function _chaos_eventattendance_get_user_array($users) {
 	$output = array();
 	foreach($users as $uid => $user) {
-		$output[$uid] = _chaos_eventattendance_get_user_info($user);
+		$output[$uid] = _chaos_eventattendance_get_user_summary($user);
 	}
 	return $output;
 }
@@ -239,7 +239,16 @@ function chaos_eventattendance_get_user($key, $uid) {
 	$output['uid'] = $uid;
 	$output['username'] = $user->name;
 	$output['email'] = $user->mail;
-	$output['roles'] = $user->roles;
+
+	$roles = array();
+	foreach($user->roles as $key => $value) {
+		array_push($roles, array(
+			'id' => $key,
+			'name' => $value,
+		));
+	}
+
+	$output['roles'] = $roles;
 	$output['first'] = $user->field_first_name['und'][0]['value'];
 	$output['last'] = $user->field_last_name['und'][0]['value'];
 	$output['birthday'] = $user->field_birthdate['und'][0]['value'];
@@ -308,8 +317,26 @@ function chaos_eventattendance_search_users($key, $id) {
 	drupal_exit();
 }
 
+function _chaos_eventattendance_perform_checkin($eid, $uid) {
+	$event = chaos_eventattendance_load($eid);	
+	$user = user_load($uid);
 
-function chaos_eventattendance_checkin_user($key, $eid, $uid) {
+	$roles = array_flip(str_getcsv($event->roles));
+	$has_roles = array_intersect_key($user->roles, $roles);
+
+	if(!empty($has_roles)) {
+		$checkin = entity_create('chaos_eventattendance_checkin', array());
+		$checkin->eid = $eid;
+		$checkin->uid = $uid;
+		$checkin->save();
+
+		return true;
+	} else {
+		return false;
+	}
+}
+
+function chaos_eventattendance_checkin_user($key, $eid, $uid, $ovr = null) {
 	if(!_chaos_eventattendance_authenticate_key($key)) {
 		return;
 	}
@@ -321,27 +348,23 @@ function chaos_eventattendance_checkin_user($key, $eid, $uid) {
 	$r = $q->execute();
 
 	$return_code = 1;
-	$return_type = 'warn';
+	$return_type = 'err';
 	$return_msg = t("Check membership, user not allowed in.");
 
 	if($r['chaos_eventattendance_checkin']) {
-		//User has already checked in
-		$return_code = 2;
-		$return_msg = t("User already checked in.");
-		$return_type = 'warn';
+		if($ovr == null) {
+			$return_code = 2;
+			$return_msg = t("User already checked in.");
+			$return_type = 'warn';
+		} else {
+			if(_chaos_eventattendance_perform_checkin($eid, $uid)) {
+				$return_code = 3;
+				$return_msg = t('Checkin overrided.');
+				$return_type = 'success';
+			}
+		}
 	} else {
-		$event = chaos_eventattendance_load($eid);	
-		$user = user_load($uid);
-
-		$roles = array_flip(str_getcsv($event->roles));
-		$has_roles = array_intersect_key($user->roles, $roles);
-	
-		if(!empty($has_roles)) {
-			$checkin = entity_create('chaos_eventattendance_checkin', array());
-			$checkin->eid = $eid;
-			$checkin->uid = $uid;
-			$checkin->save();
-
+		if(_chaos_eventattendance_perform_checkin($eid, $uid)) {
 			$return_code = 0;
 			$return_msg = t('Checkin successful!');
 			$return_type = 'success';
