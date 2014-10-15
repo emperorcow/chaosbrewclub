@@ -23,8 +23,9 @@ function chaos_eventattendance_schema() {
 				'not null' => TRUE,
 			),
 			'date' => array(
-				'description' => 'The date of the event',
-				'type' => 'text',
+				'description' => 'Timestamp of the date',
+				'type' => 'int',
+				'unsigned' => TRUE,
 				'not null' => TRUE,
 			),
 		),
@@ -49,6 +50,11 @@ function chaos_eventattendance_schema() {
 				'description' => 'The ID of the checking in user',
 				'type' => 'int',
 				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'role' => array(
+				'description' => 'Role at the time of the user that was checked in',
+				'type' => 'text',
 				'not null' => TRUE,
 			),
 			'created' => array(

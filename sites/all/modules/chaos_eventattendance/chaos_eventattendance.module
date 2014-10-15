@@ -49,6 +49,71 @@ function chaos_eventattendance_entity_info() {
 	);
 }
 
+function chaos_eventattendance_entity_property_info() {
+	return array(
+		'chaos_eventattendance' => array(
+		'properties' => array(
+			'eid' => array(
+				'label' => t('Event ID'),
+				'description' => t('The ID of the event.'),
+				'type' => 'integer',
+				'schema field' => 'eid',
+			),
+			'name' => array(
+				'label' => t('Name'),
+				'description' => t('The name of the event.'),
+				'type' => 'text',
+				'schema field' => 'name',
+			),
+			'roles' => array(
+				'label' => t('Allowed Roles'),
+				'description' => t('List of roles allowed to attend.'),
+				'type' => 'text',
+				'schema field' => 'roles',
+			),
+			'date' => array(
+				'label' => t('Date'),
+				'description' => t('When the event occurs'),
+				'type' => 'date',
+				'schema field' => 'date',
+			),
+		)),
+		'chaos_eventattendance_checkin' => array(
+		'properties' => array(
+			'checkin_id' => array(
+				'label' => t('Event Checkin ID'),
+				'description' => t('The ID of the checkin.'),
+				'type' => 'integer',
+				'schema field' => 'checkin_id',
+			),
+			'eid' => array(
+				'label' => t('Event ID'),
+				'description' => t('ID of the event'),
+				'type' => 'chaos_eventattendance',
+				'schema field' => 'eid',
+			),
+			'uid' => array(
+				'label' => t('User ID'),
+				'description' => t('ID of the user'),
+				'type' => 'user',
+				'schema field' => 'uid',
+			),
+			'role' => array(
+				'label' => t('User\'s Level'),
+				'description' => t('The membership level of the user upon checkin.'),
+				'type' => 'text',
+				'schema field' => 'role',
+			),
+			'created' => array(
+				'label' => t('Check in time'),
+				'description' => t('Time when the user was checked in.'),
+				'type' => 'date',
+				'schema field' => 'created',
+			),
+		)),
+	);	
+}
+
 function chaos_eventattendance_permission() {
 	return array(
 		'access event checkins' => array(
@@ -137,21 +202,21 @@ function chaos_eventattendance_menu() {
 		'api/eventattendance/%/start' => array(
 			'title' => 'Event Startup',
 			'page callback' => 'chaos_eventattendance_show_current_event',
-			'access arguments' => array('access event checkins'),
+			'access arguments' => true,
 			'page arguments' => array(2),
 			'type' => MENU_CALLBACK,
 		),
 		'api/eventattendance/%/search/%' => array(
 			'title' => 'User Search',
 			'page callback' => 'chaos_eventattendance_search_users',
-			'access arguments' => array('access event checkins'),
+			'access arguments' => true,
 			'page arguments' => array(2,4),
 			'type' => MENU_CALLBACK,
 		),
 		'api/eventattendance/%/user/%' => array(
 			'title' => 'User Information',
 			'page callback' => 'chaos_eventattendance_get_user',
-			'access arguments' => array('access event checkins'),
+			'access arguments' => true,
 			'page arguments' => array(2, 4),
 			'type' => MENU_CALLBACK,
 		),
@@ -159,7 +224,7 @@ function chaos_eventattendance_menu() {
 			'title' => 'User Checkin',
 			'page callback' => 'chaos_eventattendance_checkin_user',
 			'page arguments' => array(2, 4, 5, 6),
-			'access arguments' => array('access event checkins'),
+			'access arguments' => true,
 			'type' => MENU_CALLBACK,
 		),
 	);
@@ -182,9 +247,12 @@ function chaos_eventattendance_show_current_event($key) {
 		return;
 	}
 
+	$day_start = strtotime(date('Y-m-d 00:00:00'));
+	$day_end = strtotime(date('Y-m-d 23:59:59'));
+
 	$q = new EntityFieldQuery();
 	$q->entityCondition('entity_type', 'chaos_eventattendance')
-	  ->propertyCondition('date', date('Y-m-d'));
+	  ->propertyCondition('date', array($day_start, $day_end), 'BETWEEN');
 	$r = $q->execute();
 
 	$output = array();
@@ -195,7 +263,7 @@ function chaos_eventattendance_show_current_event($key) {
 		$eid = key($events);
 		$output['eid'] = $eid;
 		$output['name'] = $events[$eid]->name;
-		$output['date'] = $events[$eid]->date;
+		$output['date'] = date('Y-m-d', $events[$eid]->date);
 	}
 	drupal_json_output($output);
 	drupal_exit();
@@ -229,12 +297,40 @@ function _chaos_eventattendance_merge_user_array($first, $second) {
 	return $first;
 }
 
+function _chaos_eventattendance_get_user_level($uid) {
+	$user = user_load($uid);
+
+	if(in_array('alchemist', $user->roles)) {
+		return 'alchemist';
+	} else if(in_array('brewer', $user->roles)) {
+		return 'brewer';
+
+	} else if(in_array('brewer_intro', $user->roles)) {
+		return 'brewer_intro';
+
+	} else if(in_array('apprentice', $user->roles)) {
+		return 'apprentice';
+
+	} else if(in_array('friend', $user->roles)) {
+		return 'friend';
+
+	} else if(in_array('trial', $user->roles)) {
+		return 'trial';
+	} else {
+		return '';
+	}
+}
+
 function chaos_eventattendance_get_user($key, $uid) {
 	if(!_chaos_eventattendance_authenticate_key($key)) {
 		return;
 	}
 
 	$user = user_load($uid);
+
+	if($user->name == "") {
+		return;
+	}
 
 	$output['uid'] = $uid;
 	$output['username'] = $user->name;
@@ -324,10 +420,13 @@ function _chaos_eventattendance_perform_checkin($eid, $uid) {
 	$roles = array_flip(str_getcsv($event->roles));
 	$has_roles = array_intersect_key($user->roles, $roles);
 
+	$role = _chaos_eventattendance_get_user_level($uid);
+
 	if(!empty($has_roles)) {
 		$checkin = entity_create('chaos_eventattendance_checkin', array());
 		$checkin->eid = $eid;
 		$checkin->uid = $uid;
+		$checkin->role = $role;
 		$checkin->save();
 
 		return true;
