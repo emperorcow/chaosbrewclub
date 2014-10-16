@@ -202,21 +202,21 @@ function chaos_eventattendance_menu() {
 		'api/eventattendance/%/start' => array(
 			'title' => 'Event Startup',
 			'page callback' => 'chaos_eventattendance_show_current_event',
-			'access arguments' => true,
+			'access callback' => true,
 			'page arguments' => array(2),
 			'type' => MENU_CALLBACK,
 		),
 		'api/eventattendance/%/search/%' => array(
 			'title' => 'User Search',
 			'page callback' => 'chaos_eventattendance_search_users',
-			'access arguments' => true,
+			'access callback' => true,
 			'page arguments' => array(2,4),
 			'type' => MENU_CALLBACK,
 		),
 		'api/eventattendance/%/user/%' => array(
 			'title' => 'User Information',
 			'page callback' => 'chaos_eventattendance_get_user',
-			'access arguments' => true,
+			'access callback' => true,
 			'page arguments' => array(2, 4),
 			'type' => MENU_CALLBACK,
 		),
@@ -224,7 +224,7 @@ function chaos_eventattendance_menu() {
 			'title' => 'User Checkin',
 			'page callback' => 'chaos_eventattendance_checkin_user',
 			'page arguments' => array(2, 4, 5, 6),
-			'access arguments' => true,
+			'access callback' => true,
 			'type' => MENU_CALLBACK,
 		),
 	);
