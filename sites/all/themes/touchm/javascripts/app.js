@@ -101,7 +101,6 @@
 
 
 
-  <!-- Target sliders individually with different properties -->
   $(window).load(function() {
 	  
     $('.simple-slider').flexslider({
