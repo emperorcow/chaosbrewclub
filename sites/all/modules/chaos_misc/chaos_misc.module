@@ -1,0 +1,34 @@
+<?php
+
+/**
+ * Implements hook_element_info_alter().
+ */
+function chaos_misc_element_info_alter(&$type) {
+  // Override the location field validation
+  if (isset($type['location_element']['#element_validate'])) {
+    // Remove the original validation
+    $existing_validation = array_search("location_element_validate", $type['location_element']['#element_validate']);
+    if (isset($existing_validation)) {
+      unset($type['location_element']['#element_validate'][$existing_validation]);
+    }
+
+    // Add our validation
+    $type['location_element']['#element_validate'][] = "chaos_misc_location_element_validate";
+  }
+}
+
+
+/**
+ * Override for location_element_validate
+ */
+function chaos_misc_location_element_validate($element, &$form_state) {
+  // If the province is set, force the country to US
+  dsm($element['province'], 'province');
+  dsm($element['country'], 'country');
+  if (!empty($element['province']) && !empty($element['province']['#value'])) {
+    $element['country']['#value'] = 'us';
+  }
+
+  // Then, call the exsiting validation
+  location_invoke_locationapi($element, 'validate');
+}
