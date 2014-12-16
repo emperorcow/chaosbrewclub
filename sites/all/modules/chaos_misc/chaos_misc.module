@@ -23,8 +23,6 @@ function chaos_misc_element_info_alter(&$type) {
  */
 function chaos_misc_location_element_validate($element, &$form_state) {
   // If the province is set, force the country to US
-  dsm($element['province'], 'province');
-  dsm($element['country'], 'country');
   if (!empty($element['province']) && !empty($element['province']['#value'])) {
     $element['country']['#value'] = 'us';
   }
