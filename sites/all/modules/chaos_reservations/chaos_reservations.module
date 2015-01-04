@@ -103,7 +103,7 @@ function _chaos_reservations_get_bays() { //{{{
 		),
 		4 => array(
 			'name' => 'Bay 4',
-			'coords' => '386,8,474,126',
+			'coords' => '64,141,151,259',
 			'visible' => true,
 			'selectable' => true,
 			'selected' => false,
@@ -137,7 +137,7 @@ function _chaos_reservations_get_bays() { //{{{
 			'function' => 'brew',
 			'access' => 'access brew tower',
 		),
-		8 => array(
+		/*8 => array(
 			'name' => 'Three Tier System',
 			'coords' => '64,141,151,259',
 			'visible' => true,
@@ -146,7 +146,7 @@ function _chaos_reservations_get_bays() { //{{{
 			'selected' => false,
 			'function' => 'brew',
 			'access' => 'access brew 3tier',
-		),
+		),*/
 	);
 } //}}}
 
