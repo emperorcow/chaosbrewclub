@@ -124,6 +124,10 @@ function chaos_eventattendance_permission() {
 			'title' => t('Administer event checkins'),
 			'description' => t('Administer event checkins, view reports, etc.'),
 		),
+		'report event checkins' => array(
+			'title' => t('Report on event checkins'),
+			'description' => t('Get the checkin report to see who came'),
+		),
 	);
 }
 
@@ -192,11 +196,18 @@ function chaos_eventattendance_checkin_load_multiple($eids = array(), $condition
 function chaos_eventattendance_menu() {
 	return array(
 		'admin/config/services/eventattendance' => array(
-			'title' => 'Event Attendance',
+			'title' => 'Event Attendance Management',
 			'description' => t('Settings for event checkins'),
 			'page callback' => 'drupal_get_form',
 			'page arguments' => array('chaos_eventattendance_admin'),
 			'access arguments' => array('admin event checkins'),
+			'type' => MENU_NORMAL_ITEM,
+		),
+		'board/eventattendance' => array(
+			'title' => 'Event Attendance',
+			'description' => t('Event Attendance Reports'),
+			'page callback' => 'chaos_eventattendance_report_checkins',
+			'access arguments' => array('report event checkins'),
 			'type' => MENU_NORMAL_ITEM,
 		),
 		'api/eventattendance/%/start' => array(
@@ -475,4 +486,35 @@ function chaos_eventattendance_checkin_user($key, $eid, $uid, $ovr = null) {
 		'msg' => $return_msg,
 	));
 	drupal_exit();	
+}
+
+function chaos_eventattendance_report_checkins() {
+	$header = array(
+		array('data' => t('Date'), 'field' => 'event_date'),
+		array('data' => t('Event'), 'field' => 'event_name'),
+		array('data' => t('Username'), 'field' => 'username'),
+		array('data' => t('Name'), 'field' => 'user_fullname'),
+		array('data' => t('Checkin time'), 'field' => 'checkin_time'),
+	);
+
+	$q = new EntityFieldQuery();
+	$q->entityCondition('entity_type', 'chaos_eventattendance_checkin')
+		->propertyOrderBy('created', 'ASC')
+		->pager(25);
+	$r = $q->execute();
+
+	var_dump($r);
+
+	$rows = array();
+	foreach($r as $checkin) {
+		$rows[] = array(
+		);
+	}
+
+/*	$build = array(
+		'content' => $content,
+		'pager' => array
+
+	return $build;
+*/
 }
