@@ -379,34 +379,38 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 			node_object_prepare($node);
 			$node->language = LANGUAGE_NONE;
 		}
-		
+
 		if($form_state['values']['gethelp'] == 1) {
-			$roleid = 30; //Membership Managers
-			$res = db_query("SELECT u.uid, u.name, u.mail, u.status 
-					FROM {users} AS u INNER JOIN {users_roles} AS ur ON u.uid = ur.uid 
-					WHERE ur.rid = :role AND u.status = 1", 
-					array(":role" => $roleid)
+			$membership_manager_role_id = 30; // Membership Managers
+			$brew_buddy_role_id = 34; // Brew Buddies
+			$res = db_query("SELECT u.uid, u.name, u.mail, u.status
+					FROM {users} AS u INNER JOIN {users_roles} AS ur ON u.uid = ur.uid
+					WHERE ur.rid IN (:roleids) AND u.status = 1",
+					array(":roleids" => array($membership_manager_role_id, $brew_buddy_role_id))
 				);
 
 			$tmpstart = $start;
-			$tmpend = $end;	
+			$tmpend = $end;
 
 			$tmpstart->setTimezone(new DateTimeZone(date_default_timezone()));
 			$tmpend->setTimezone(new DateTimeZone(date_default_timezone()));
 
+			$recipient_emails = array($user->mail);
 			while($u = $res->fetchAssoc()) {
-				$params = array(
-					'uid' => $user->uid,
-					'username' => $user->name,
-					'userlevel' => _chaos_reservations_get_user_level($user),
-					'usermail' => $user->mail,
-					'starttime' => $tmpstart->format('g:ia \o\n l jS F Y'),
-					'endtime' => $tmpend->format('g:ia \o\n l jS F Y'),
-					'bay' => $form_state['values']['bay']['name'],
-				);
-
-				drupal_mail('chaos_reservations', 'gethelp', $u['mail'], user_preferred_language($u['mail']), $params);
+				$recipient_emails[] = $u['mail'];
 			}
+
+			$params = array(
+				'uid' => $user->uid,
+				'username' => $user->name,
+				'userlevel' => _chaos_reservations_get_user_level($user),
+				'usermail' => $user->mail,
+				'starttime' => $tmpstart->format('g:ia \o\n l jS F Y'),
+				'endtime' => $tmpend->format('g:ia \o\n l jS F Y'),
+				'bay' => $form_state['values']['bay']['name'],
+			);
+
+			drupal_mail('chaos_reservations', 'gethelp', $recipient_emails, language_default(), $params);
 		}
 
 		if($form_state['values']['close'] == 1) {
