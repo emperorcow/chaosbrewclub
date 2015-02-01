@@ -380,10 +380,11 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 			$node->language = LANGUAGE_NONE;
 		}
 
+		// If the user requested help finding a brew supervisor, email the brew buddies
 		if($form_state['values']['gethelp'] == 1) {
 			$membership_manager_role_id = 30; // Membership Managers
 			$brew_buddy_role_id = 34; // Brew Buddies
-			$res = db_query("SELECT u.uid, u.name, u.mail, u.status
+			$res = db_query("SELECT DISTINCT u.mail
 					FROM {users} AS u INNER JOIN {users_roles} AS ur ON u.uid = ur.uid
 					WHERE ur.rid IN (:roleids) AND u.status = 1",
 					array(":roleids" => array($membership_manager_role_id, $brew_buddy_role_id))
@@ -395,9 +396,16 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 			$tmpstart->setTimezone(new DateTimeZone(date_default_timezone()));
 			$tmpend->setTimezone(new DateTimeZone(date_default_timezone()));
 
-			$recipient_emails = array($user->mail);
+			// Put all the brew buddies on a single email
+			$recipient_emails = array();
 			while($u = $res->fetchAssoc()) {
 				$recipient_emails[] = $u['mail'];
+			}
+
+			$bays = _chaos_reservations_get_bays();
+			$bay_name = $bays[$form_state['values']['bay']]['name'];
+			if (!$bay_name) {
+				$bay_name = "Unknown Brew Bay";
 			}
 
 			$params = array(
@@ -407,7 +415,7 @@ function chaos_reservations_reservation_form_submit($form, $form_state) { //{{{
 				'usermail' => $user->mail,
 				'starttime' => $tmpstart->format('g:ia \o\n l jS F Y'),
 				'endtime' => $tmpend->format('g:ia \o\n l jS F Y'),
-				'bay' => $form_state['values']['bay']['name'],
+				'bay' => $bay_name,
 			);
 
 			drupal_mail('chaos_reservations', 'gethelp', $recipient_emails, language_default(), $params);
