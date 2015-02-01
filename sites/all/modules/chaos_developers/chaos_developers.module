@@ -1,0 +1,23 @@
+<?php
+
+define('BOARD_ONLY_FORUM_TID', 149);
+
+/**
+ * Delete all Board Only forum threads and comments on them
+ */
+function chaos_developers_remove_board_only_posts() {
+  // Query for node IDs in the board-only forum
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'node')
+    ->fieldCondition('taxonomy_forums', 'tid', BOARD_ONLY_FORUM_TID);
+  $result = $query->execute();
+  $nids = array_keys($result['node']);
+
+  // Break the list of nids into batches and delete
+  $nid_chunks = array_chunk($nids, 25);
+  foreach ($nid_chunks as $some_nids) {
+    node_delete_multiple($some_nids);
+  }
+
+  drupal_set_message("Attemped to delete " . count($nids) . " board-only posts");
+}

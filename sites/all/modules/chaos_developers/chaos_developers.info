@@ -1,0 +1,4 @@
+name = CHAOS Developer Utilities
+description = Utilities for local development sites. DO NOT ENABLE THIS ON PRODUCTION.
+core = 7.x
+package = CHAOS Brew Club
