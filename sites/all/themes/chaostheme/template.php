@@ -49,6 +49,8 @@ function _chaostheme_condense_html($html) {
  */
 function chaostheme_preprocess_author_pane(&$vars) {
 	$account = $vars['account'];
+	$since = 0;
+
 	// Check if this user has a membership
 	if (is_array($account->ms_memberships)) {
 		foreach ($account->ms_memberships as $membership) {
