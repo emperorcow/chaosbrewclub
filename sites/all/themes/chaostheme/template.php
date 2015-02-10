@@ -54,9 +54,8 @@ function chaostheme_preprocess_author_pane(&$vars) {
 	// Check if this user has a membership
 	if (is_array($account->ms_memberships)) {
 		foreach ($account->ms_memberships as $membership) {
-			// Only look at the active membership
-			if ($membership->status == 'active') {
-				// Check the start date
+			// Find the earliest start date of a membership: that's when they first become a paid member
+			if ($since == 0 || $membership->start_date < $since) {
 				$since = $membership->start_date;
 			}
 		}
@@ -96,7 +95,7 @@ function chaostheme_preprocess_page(&$vars, $hook) {
 		   $vars["node"]->type == 'project') {
 			$vars['theme_hook_suggestions'][0] = 'page__node__forum';
 			$vars["forum_breadcrumb"] = _get_forum_breadcrumb();
-		}	
+		}
 	}
 	if(arg(0) == 'user' && is_numeric(arg(1))) {
 		if(user_access('administer users')) {
