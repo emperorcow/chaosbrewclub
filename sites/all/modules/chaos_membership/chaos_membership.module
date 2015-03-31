@@ -10,5 +10,5 @@ function chaos_membership_form_alter(&$form, &$form_state, $form_id) {
 
 function chaos_membership_ms_core_billing_info_alter(&$html, &$user) {
 	$html['membershipnote']['#type'] = 'markup';
-	$html['membershipnote']['#markup'] = '<b>Note:</b> Adding a card will not setup a membership, you should also setup your membership (and not just billing info) at the <a href="/user/me/member-info">Membership</a> tab.<br/><br/>';
+	$html['membershipnote']['#markup'] = '<b>Note:</b> Adding a card will not setup a membership, you should also setup your membership (and not just billing info) at the <a href="/user/me/ms_membership">Membership</a> tab.<br/><br/>';
 }
