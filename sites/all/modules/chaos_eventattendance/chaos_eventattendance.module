@@ -414,7 +414,7 @@ function chaos_eventattendance_search_users($key, $id) {
 			->condition('field_first_name_value', "%{$id}%", 'LIKE')
 			->condition('field_last_name_value', "%{$id}%", 'LIKE')
   	);
-	$uids = $query->limit(10)->execute()->fetchCol();
+	$uids = $query->limit(20)->execute()->fetchCol();
 	$users = user_load_multiple($uids);
 	$output = _chaos_eventattendance_get_user_array($users);
 
